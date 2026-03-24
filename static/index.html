@@ -498,6 +498,8 @@ audio { width: 100%; margin-bottom: 8px; }
       <div class="ws-dot" id="ws-dot"></div>
       <span class="ws-label" id="ws-label">connecting...</span>
       <div class="spacer"></div>
+      <button id="expand-all-btn">Expand All</button>
+      <button id="collapse-all-btn">Collapse All</button>
       <button id="pause-btn">Pause</button>
       <button id="clear-btn">Clear</button>
     </div>
@@ -861,6 +863,12 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+document.getElementById('expand-all-btn').addEventListener('click', () => {
+  logFeed.querySelectorAll('.log-entry').forEach(e => e.classList.add('expanded'));
+});
+document.getElementById('collapse-all-btn').addEventListener('click', () => {
+  logFeed.querySelectorAll('.log-entry').forEach(e => e.classList.remove('expanded'));
+});
 pauseBtn.addEventListener('click', () => {
   paused = !paused;
   pauseBtn.textContent = paused ? 'Resume' : 'Pause';
