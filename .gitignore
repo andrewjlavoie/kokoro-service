@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+output/
+*.wav
+.claude/
+.mcp.json
+.idea/
+.vscode/
+.bash_profile
+.bashrc
+.zshrc
+.zprofile
+.profile
+.gitconfig
+.gitmodules
+.ripgreprc
+last_claude.md

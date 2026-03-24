@@ -3,6 +3,7 @@
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,20 @@ import soundfile as sf
 from kokoro import KPipeline
 
 SAMPLE_RATE = 24000
+
+VOICES = {
+    "af_heart": "American Female - Heart",
+    "af_bella": "American Female - Bella",
+    "af_nicole": "American Female - Nicole",
+    "af_sarah": "American Female - Sarah",
+    "af_sky": "American Female - Sky",
+    "am_adam": "American Male - Adam",
+    "am_michael": "American Male - Michael",
+    "bf_emma": "British Female - Emma",
+    "bf_isabella": "British Female - Isabella",
+    "bm_george": "British Male - George",
+    "bm_lewis": "British Male - Lewis",
+}
 
 
 class KokoroTTS:
@@ -25,14 +40,24 @@ class KokoroTTS:
         if self._pipeline is None:
             self._pipeline = KPipeline(lang_code=self.lang_code, repo_id="hexgrad/Kokoro-82M")
 
-    def synthesize(self, text: str, voice: str | None = None, speed: float | None = None) -> tuple[np.ndarray, int]:
-        """Convert text to audio. Returns (numpy_array, sample_rate)."""
+    @staticmethod
+    def list_voices() -> dict[str, str]:
+        """Return available voice IDs and their descriptions."""
+        return dict(VOICES)
+
+    def synthesize_stream(
+        self, text: str, voice: str | None = None, speed: float | None = None
+    ) -> Generator[np.ndarray, None, None]:
+        """Yield audio segments as they are generated (numpy float32 arrays)."""
         self._ensure_pipeline()
         voice = voice or self.voice
         speed = speed or self.speed
-        chunks = []
         for _, _, audio in self._pipeline(text, voice=voice, speed=speed):
-            chunks.append(audio)
+            yield audio.numpy() if hasattr(audio, "numpy") else np.asarray(audio)
+
+    def synthesize(self, text: str, voice: str | None = None, speed: float | None = None) -> tuple[np.ndarray, int]:
+        """Convert text to audio. Returns (numpy_array, sample_rate)."""
+        chunks = list(self.synthesize_stream(text, voice=voice, speed=speed))
         if not chunks:
             return np.array([], dtype=np.float32), SAMPLE_RATE
         return np.concatenate(chunks), SAMPLE_RATE

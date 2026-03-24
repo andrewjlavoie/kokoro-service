@@ -1,0 +1,13 @@
+services:
+  kokoro-tts:
+    build: .
+    ports:
+      - "8880:8880"
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    environment:
+      - HF_HUB_DOWNLOAD_TIMEOUT=120
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
