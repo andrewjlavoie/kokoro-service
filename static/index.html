@@ -299,16 +299,76 @@ audio { width: 100%; margin-bottom: 8px; }
   line-height: 1.7;
 }
 .log-entry {
-  padding: 3px 8px;
+  padding: 4px 8px;
   border-radius: 4px;
-  margin-bottom: 1px;
-  word-break: break-all;
+  margin-bottom: 2px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
 }
 .log-entry:hover { background: #ffffff08; }
-.log-entry .ts { color: var(--text-dim); }
-.log-entry.INFO .lvl { color: var(--blue); }
-.log-entry.WARNING .lvl { color: var(--yellow); }
-.log-entry.ERROR .lvl { color: var(--red); }
+.log-entry .log-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.log-entry .ts { color: var(--text-dim); flex-shrink: 0; }
+.log-entry .lvl { flex-shrink: 0; font-weight: 600; font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+.log-entry.INFO .lvl { color: var(--blue); background: #60a5fa18; }
+.log-entry.WARNING .lvl { color: var(--yellow); background: #facc1518; }
+.log-entry.ERROR .lvl { color: var(--red); background: #f8717118; }
+.log-entry .tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+/* Event type colors */
+.tag.synth_start, .tag.stream_start { color: #a78bfa; background: #a78bfa18; }
+.tag.synth_complete, .tag.stream_complete { color: var(--green); background: #4ade8018; }
+.tag.synth_empty { color: var(--red); background: #f8717118; }
+.tag.stream_segment { color: #818cf8; background: #818cf818; }
+/* HTTP method colors */
+.tag.POST { color: #f472b6; background: #f472b618; }
+.tag.GET { color: #34d399; background: #34d39918; }
+
+.log-entry .msg {
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* Expanded state */
+.log-entry .log-detail {
+  display: none;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  font-size: 12px;
+  color: var(--text);
+  max-height: 400px;
+  overflow-y: auto;
+}
+.log-entry.expanded .log-detail { display: block; }
+.log-entry.expanded .log-summary { white-space: normal; }
+.log-entry .log-detail .json-key { color: #a78bfa; }
+.log-entry .log-detail .json-str { color: #4ade80; }
+.log-entry .log-detail .json-num { color: #facc15; }
+.log-entry .log-detail .json-bool { color: #f472b6; }
+.log-entry .log-detail .json-null { color: var(--text-dim); }
+/* Border accent by event type */
+.log-entry.evt-synth_start, .log-entry.evt-stream_start { border-left-color: #a78bfa; }
+.log-entry.evt-synth_complete, .log-entry.evt-stream_complete { border-left-color: var(--green); }
+.log-entry.evt-synth_empty { border-left-color: var(--red); }
+.log-entry.evt-stream_segment { border-left-color: #818cf8; }
 
 /* ---- Voice Styles ---- */
 .coming-soon {
@@ -705,16 +765,96 @@ connectWS();
 
 function addLog(entry) {
   const div = document.createElement('div');
-  div.className = `log-entry ${entry.level || 'INFO'}`;
+  const level = entry.level || 'INFO';
   const ts = entry.time || new Date().toLocaleTimeString();
   let msg = entry.message;
+  let rawData = msg; // keep original for expand view
+  let eventType = '';
+  let method = '';
+  let summaryText = '';
+
+  // Parse structured message
   if (typeof msg === 'object') {
-    msg = Object.entries(msg).map(([k, v]) => `${k}=${v}`).join(' ');
+    eventType = msg.event || '';
+    method = msg.method || '';
+    // Build a readable one-line summary
+    const parts = [];
+    if (msg.event) parts.push(msg.event);
+    if (msg.text) parts.push(`"${msg.text}"`);
+    if (msg.voice) parts.push(`voice=${msg.voice}`);
+    if (msg.speed && msg.speed !== 1) parts.push(`speed=${msg.speed}`);
+    if (msg.chars) parts.push(`${msg.chars} chars`);
+    if (msg.audio_duration) parts.push(`audio=${msg.audio_duration}`);
+    if (msg.synth_time) parts.push(`synth=${msg.synth_time}`);
+    if (msg.size) parts.push(`size=${msg.size}`);
+    if (msg.segment) parts.push(`segment #${msg.segment}`);
+    if (msg.segment_duration) parts.push(`dur=${msg.segment_duration}`);
+    if (msg.path) parts.push(msg.path);
+    if (msg.status) parts.push(`→ ${msg.status}`);
+    if (msg.duration_ms) parts.push(`${msg.duration_ms}ms`);
+    if (msg.segments) parts.push(`${msg.segments} segments`);
+    if (msg.error) parts.push(`error: ${msg.error}`);
+    summaryText = parts.join('  ');
+  } else {
+    summaryText = String(msg);
   }
-  div.innerHTML = `<span class="ts">${ts}</span> <span class="lvl">${entry.level || 'INFO'}</span> <span class="msg">${escapeHtml(String(msg))}</span>`;
+
+  // CSS classes
+  div.className = `log-entry ${level}`;
+  if (eventType) div.classList.add('evt-' + eventType);
+
+  // Build tags
+  let tags = '';
+  if (eventType) tags += `<span class="tag ${escapeHtml(eventType)}">${escapeHtml(eventType)}</span>`;
+  if (method) tags += `<span class="tag ${escapeHtml(method)}">${escapeHtml(method)}</span>`;
+
+  // Summary line
+  div.innerHTML = `
+    <div class="log-summary">
+      <span class="ts">${escapeHtml(ts)}</span>
+      <span class="lvl">${level}</span>
+      ${tags}
+      <span class="msg">${escapeHtml(summaryText)}</span>
+    </div>
+    <div class="log-detail">${formatDetail(rawData)}</div>
+  `;
+
+  // Click to expand/collapse
+  div.addEventListener('click', () => div.classList.toggle('expanded'));
+
   logFeed.appendChild(div);
   logFeed.scrollTop = logFeed.scrollHeight;
   while (logFeed.children.length > 500) logFeed.removeChild(logFeed.firstChild);
+}
+
+function formatDetail(data) {
+  if (typeof data === 'object') {
+    return syntaxHighlight(JSON.stringify(data, null, 2));
+  }
+  // Try parsing as JSON string
+  try {
+    const parsed = JSON.parse(data);
+    return syntaxHighlight(JSON.stringify(parsed, null, 2));
+  } catch {
+    return escapeHtml(String(data));
+  }
+}
+
+function syntaxHighlight(json) {
+  return escapeHtml(json).replace(
+    /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    (match) => {
+      if (/^"/.test(match)) {
+        if (/:$/.test(match)) {
+          return `<span class="json-key">${match}</span>`;
+        }
+        return `<span class="json-str">${match}</span>`;
+      }
+      if (/true|false/.test(match)) return `<span class="json-bool">${match}</span>`;
+      if (/null/.test(match)) return `<span class="json-null">${match}</span>`;
+      return `<span class="json-num">${match}</span>`;
+    }
+  );
 }
 
 function escapeHtml(s) {
