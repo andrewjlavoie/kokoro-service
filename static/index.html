@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kokoro TTS</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --accent: #e94560;
+  --accent-dim: #a83248;
+  --text: #eee;
+  --text-dim: #888;
+  --green: #4ade80;
+  --yellow: #facc15;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --radius: 8px;
+  --nav-width: 200px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: grid;
+  grid-template-columns: var(--nav-width) 1fr;
+  grid-template-rows: 1fr;
+  overflow: hidden;
+}
+
+/* ---- Left Nav ---- */
+nav {
+  background: var(--surface);
+  border-right: 1px solid #ffffff10;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.nav-brand {
+  padding: 20px 16px;
+  border-bottom: 1px solid #ffffff10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nav-brand h1 { font-size: 18px; font-weight: 700; }
+.nav-brand .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+}
+.nav-brand .dot.ready { background: var(--green); }
+
+.nav-items { padding: 8px; flex: 1; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.15s;
+  user-select: none;
+}
+.nav-item:hover { background: #ffffff08; color: var(--text); }
+.nav-item.active { background: var(--surface2); color: var(--text); }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+.nav-item .badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  display: none;
+}
+
+.nav-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #ffffff10;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+/* ---- Content Area ---- */
+.content {
+  overflow-y: auto;
+  padding: 24px;
+}
+.page { display: none; }
+.page.active { display: block; }
+
+/* ---- Shared Components ---- */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+
+/* ---- Dashboard ---- */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.stat-card .stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.stat-card .stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.stat-card .stat-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.history-table th {
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #ffffff10;
+}
+.history-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #ffffff08;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.history-table tr:hover td { background: #ffffff05; }
+.history-table .text-preview {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--sans);
+}
+
+/* ---- Generate ---- */
+textarea {
+  width: 100%;
+  min-height: 140px;
+  background: var(--bg);
+  border: 1px solid #ffffff15;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  padding: 12px;
+  resize: vertical;
+}
+textarea:focus { outline: none; border-color: var(--accent); }
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 16px;
+}
+label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+select {
+  width: 100%;
+  height: 38px;
+  background: var(--bg);
+  border: 1px solid #ffffff15;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+select option { background: var(--bg); }
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  background: #ffffff20;
+  border-radius: 2px;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+.speed-wrap { display: flex; align-items: center; gap: 8px; }
+.speed-val {
+  font-size: 14px;
+  font-family: var(--mono);
+  min-width: 36px;
+  text-align: right;
+}
+button {
+  height: 38px;
+  padding: 0 24px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:hover { background: var(--accent-dim); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.player-area { margin-top: 16px; display: none; }
+.player-area.visible { display: block; }
+audio { width: 100%; margin-bottom: 8px; }
+.meta {
+  display: flex;
+  gap: 20px;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  flex-wrap: wrap;
+}
+
+/* ---- Logs ---- */
+.logs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.logs-toolbar .ws-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+}
+.logs-toolbar .ws-dot.connected { background: var(--green); }
+.logs-toolbar .ws-label { font-size: 13px; color: var(--text-dim); }
+.logs-toolbar .spacer { flex: 1; }
+.logs-toolbar button {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid #ffffff15;
+}
+.logs-toolbar button:hover { background: #ffffff10; }
+.log-feed {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px;
+  height: calc(100vh - 140px);
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.log-entry {
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-bottom: 1px;
+  word-break: break-all;
+}
+.log-entry:hover { background: #ffffff08; }
+.log-entry .ts { color: var(--text-dim); }
+.log-entry.INFO .lvl { color: var(--blue); }
+.log-entry.WARNING .lvl { color: var(--yellow); }
+.log-entry.ERROR .lvl { color: var(--red); }
+
+/* ---- Voice Styles ---- */
+.coming-soon {
+  border: 2px dashed #ffffff15;
+  border-radius: var(--radius);
+  padding: 48px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.coming-soon p { margin-bottom: 8px; }
+.coming-soon small { font-size: 12px; }
+
+/* ---- Spinner ---- */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 2px solid #ffffff30;
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+</style>
+</head>
+<body>
+
+<!-- Left Nav -->
+<nav>
+  <div class="nav-brand">
+    <div class="dot" id="health-dot"></div>
+    <h1>Kokoro TTS</h1>
+  </div>
+  <div class="nav-items">
+    <div class="nav-item active" data-page="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-page="generate">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      Generate
+    </div>
+    <div class="nav-item" data-page="logs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Logs
+      <span class="badge" id="log-badge">0</span>
+    </div>
+    <div class="nav-item" data-page="voices">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      Voice Styles
+    </div>
+  </div>
+  <div class="nav-footer" id="nav-footer">connecting...</div>
+</nav>
+
+<!-- Content Area -->
+<div class="content">
+
+  <!-- Dashboard Page -->
+  <div class="page active" id="page-dashboard">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Status</div>
+        <div class="stat-value" id="dash-status" style="color:var(--yellow)">...</div>
+        <div class="stat-sub" id="dash-uptime"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Requests</div>
+        <div class="stat-value" id="dash-requests">0</div>
+        <div class="stat-sub">total generations</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Audio Generated</div>
+        <div class="stat-value" id="dash-audio">0s</div>
+        <div class="stat-sub">total duration</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Synth Time</div>
+        <div class="stat-value" id="dash-avg">—</div>
+        <div class="stat-sub">per request</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Recent Generations</h2>
+      <table class="history-table">
+        <thead><tr><th>Time</th><th>Voice</th><th>Text</th><th>Audio</th><th>Synth</th></tr></thead>
+        <tbody id="history-body">
+          <tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:24px;">No generations yet — go to Generate to create your first one</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Generate Page -->
+  <div class="page" id="page-generate">
+    <div class="card">
+      <h2>Generate Speech</h2>
+      <textarea id="text-input" placeholder="Type or paste text to synthesize... (Ctrl+Enter to generate)">Hello! This is a test of the Kokoro text to speech system.</textarea>
+      <div class="controls">
+        <div>
+          <label for="voice-select">Voice</label>
+          <select id="voice-select"></select>
+        </div>
+        <div>
+          <label>Speed</label>
+          <div class="speed-wrap">
+            <input type="range" id="speed-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+            <span class="speed-val" id="speed-val">1.0x</span>
+          </div>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="generate-btn">Generate</button>
+        </div>
+      </div>
+      <div class="player-area" id="player-area">
+        <audio id="audio-player" controls></audio>
+        <div class="meta" id="meta"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs Page -->
+  <div class="page" id="page-logs">
+    <div class="logs-toolbar">
+      <div class="ws-dot" id="ws-dot"></div>
+      <span class="ws-label" id="ws-label">connecting...</span>
+      <div class="spacer"></div>
+      <button id="pause-btn">Pause</button>
+      <button id="clear-btn">Clear</button>
+    </div>
+    <div class="log-feed" id="log-feed"></div>
+  </div>
+
+  <!-- Voice Styles Page -->
+  <div class="page" id="page-voices">
+    <div class="card">
+      <h2>Voice Styles</h2>
+      <div class="coming-soon">
+        <p>Custom voice blends and presets</p>
+        <small>Mix voices, save named presets, and configure per-project defaults — coming in the next phase</small>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ---- State ----
+let paused = false;
+let logCount = 0;
+const history = [];
+let totalRequests = 0;
+let totalAudioDuration = 0;
+let totalSynthMs = 0;
+
+// ---- Nav ----
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('page-' + item.dataset.page).classList.add('active');
+    // Reset log badge when viewing logs
+    if (item.dataset.page === 'logs') {
+      logCount = 0;
+      document.getElementById('log-badge').style.display = 'none';
+    }
+  });
+});
+
+// ---- Elements ----
+const textInput = document.getElementById('text-input');
+const voiceSelect = document.getElementById('voice-select');
+const speedSlider = document.getElementById('speed-slider');
+const speedVal = document.getElementById('speed-val');
+const generateBtn = document.getElementById('generate-btn');
+const playerArea = document.getElementById('player-area');
+const audioPlayer = document.getElementById('audio-player');
+const metaDiv = document.getElementById('meta');
+const logFeed = document.getElementById('log-feed');
+const healthDot = document.getElementById('health-dot');
+const wsDot = document.getElementById('ws-dot');
+const wsLabel = document.getElementById('ws-label');
+const pauseBtn = document.getElementById('pause-btn');
+const clearBtn = document.getElementById('clear-btn');
+const navFooter = document.getElementById('nav-footer');
+
+// ---- Speed slider ----
+speedSlider.addEventListener('input', () => {
+  speedVal.textContent = parseFloat(speedSlider.value).toFixed(1) + 'x';
+});
+
+// ---- Load voices ----
+async function loadVoices() {
+  try {
+    const res = await fetch('/voices');
+    const data = await res.json();
+    voiceSelect.innerHTML = '';
+    const groups = {};
+    data.voices.forEach(v => {
+      const prefix = v.name.split(' - ')[0] || 'Other';
+      if (!groups[prefix]) groups[prefix] = [];
+      groups[prefix].push(v);
+    });
+    for (const [group, voices] of Object.entries(groups)) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = group;
+      voices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = `${v.id} — ${v.name.split(' - ')[1] || v.name}`;
+        optgroup.appendChild(opt);
+      });
+      voiceSelect.appendChild(optgroup);
+    }
+  } catch (e) {
+    voiceSelect.innerHTML = '<option>Failed to load voices</option>';
+  }
+}
+loadVoices();
+
+// ---- Health check ----
+async function checkHealth() {
+  try {
+    const res = await fetch('/health');
+    if (res.ok) {
+      const data = await res.json();
+      healthDot.classList.add('ready');
+      const uptime = formatUptime(data.uptime_seconds);
+      navFooter.textContent = `Kokoro-82M · ${uptime}`;
+      document.getElementById('dash-status').textContent = 'Ready';
+      document.getElementById('dash-status').style.color = 'var(--green)';
+      document.getElementById('dash-uptime').textContent = `uptime: ${uptime}`;
+    } else {
+      healthDot.classList.remove('ready');
+      navFooter.textContent = 'loading model...';
+      document.getElementById('dash-status').textContent = 'Loading';
+      document.getElementById('dash-status').style.color = 'var(--yellow)';
+    }
+  } catch {
+    healthDot.classList.remove('ready');
+    navFooter.textContent = 'disconnected';
+    document.getElementById('dash-status').textContent = 'Offline';
+    document.getElementById('dash-status').style.color = 'var(--red)';
+  }
+}
+
+function formatUptime(seconds) {
+  if (seconds < 60) return Math.round(seconds) + 's';
+  if (seconds < 3600) return Math.round(seconds / 60) + 'm';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
+checkHealth();
+setInterval(checkHealth, 5000);
+
+// ---- Dashboard stats ----
+function updateDashboard() {
+  document.getElementById('dash-requests').textContent = totalRequests;
+  document.getElementById('dash-audio').textContent = totalAudioDuration.toFixed(1) + 's';
+  document.getElementById('dash-avg').textContent = totalRequests > 0
+    ? (totalSynthMs / totalRequests / 1000).toFixed(2) + 's'
+    : '—';
+}
+
+function addHistoryEntry(entry) {
+  history.unshift(entry);
+  if (history.length > 50) history.pop();
+  const tbody = document.getElementById('history-body');
+  // Rebuild (simple for MVP)
+  tbody.innerHTML = history.map(e => `
+    <tr>
+      <td>${e.time}</td>
+      <td>${e.voice}</td>
+      <td class="text-preview">${escapeHtml(e.text)}</td>
+      <td>${e.audioDuration}s</td>
+      <td>${e.synthTime}s</td>
+    </tr>
+  `).join('');
+}
+
+// ---- Generate ----
+generateBtn.addEventListener('click', async () => {
+  const text = textInput.value.trim();
+  if (!text) return;
+
+  generateBtn.disabled = true;
+  generateBtn.innerHTML = '<span class="spinner"></span>Generating...';
+
+  const t0 = performance.now();
+  try {
+    const res = await fetch('/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: text,
+        voice: voiceSelect.value,
+        speed: parseFloat(speedSlider.value),
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert('Error: ' + (err.detail || res.statusText));
+      return;
+    }
+
+    const elapsedSec = ((performance.now() - t0) / 1000).toFixed(2);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    if (audioPlayer.src.startsWith('blob:')) URL.revokeObjectURL(audioPlayer.src);
+    audioPlayer.src = url;
+    playerArea.classList.add('visible');
+
+    const reqId = res.headers.get('X-Request-ID') || '—';
+    const duration = res.headers.get('X-Audio-Duration') || '0';
+    const voice = res.headers.get('X-Voice') || voiceSelect.value;
+    metaDiv.innerHTML = `
+      <span>id: ${reqId}</span>
+      <span>audio: ${duration}s</span>
+      <span>synth: ${elapsedSec}s</span>
+      <span>voice: ${voice}</span>
+      <span>size: ${(blob.size / 1024).toFixed(0)}KB</span>
+    `;
+    audioPlayer.play();
+
+    // Track stats
+    totalRequests++;
+    totalAudioDuration += parseFloat(duration) || 0;
+    totalSynthMs += parseFloat(elapsedSec) * 1000;
+    updateDashboard();
+    addHistoryEntry({
+      time: new Date().toLocaleTimeString(),
+      voice,
+      text: text.substring(0, 100),
+      audioDuration: parseFloat(duration).toFixed(2),
+      synthTime: elapsedSec,
+    });
+  } catch (e) {
+    alert('Request failed: ' + e.message);
+  } finally {
+    generateBtn.disabled = false;
+    generateBtn.textContent = 'Generate';
+  }
+});
+
+textInput.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'Enter') generateBtn.click();
+});
+
+// ---- WebSocket logs ----
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws/logs`);
+
+  ws.onopen = () => {
+    wsDot.classList.add('connected');
+    wsLabel.textContent = 'connected';
+    addLog({ level: 'INFO', message: 'Connected to log stream' });
+  };
+
+  ws.onmessage = (event) => {
+    if (paused) return;
+    try {
+      addLog(JSON.parse(event.data));
+    } catch {
+      addLog({ level: 'INFO', message: event.data });
+    }
+    // Badge if not on logs page
+    const logsActive = document.querySelector('.nav-item[data-page="logs"]').classList.contains('active');
+    if (!logsActive) {
+      logCount++;
+      const badge = document.getElementById('log-badge');
+      badge.textContent = logCount > 99 ? '99+' : logCount;
+      badge.style.display = 'inline';
+    }
+  };
+
+  ws.onclose = () => {
+    wsDot.classList.remove('connected');
+    wsLabel.textContent = 'disconnected';
+    addLog({ level: 'WARNING', message: 'Disconnected, reconnecting...' });
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+connectWS();
+
+function addLog(entry) {
+  const div = document.createElement('div');
+  div.className = `log-entry ${entry.level || 'INFO'}`;
+  const ts = entry.time || new Date().toLocaleTimeString();
+  let msg = entry.message;
+  if (typeof msg === 'object') {
+    msg = Object.entries(msg).map(([k, v]) => `${k}=${v}`).join(' ');
+  }
+  div.innerHTML = `<span class="ts">${ts}</span> <span class="lvl">${entry.level || 'INFO'}</span> <span class="msg">${escapeHtml(String(msg))}</span>`;
+  logFeed.appendChild(div);
+  logFeed.scrollTop = logFeed.scrollHeight;
+  while (logFeed.children.length > 500) logFeed.removeChild(logFeed.firstChild);
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+});
+clearBtn.addEventListener('click', () => { logFeed.innerHTML = ''; });
+</script>
+</body>
+</html>
