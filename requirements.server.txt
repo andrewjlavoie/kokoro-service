@@ -4,3 +4,4 @@ torch
 fastapi
 uvicorn[standard]
 websockets
+motor

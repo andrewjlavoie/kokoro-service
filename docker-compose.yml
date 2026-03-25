@@ -5,9 +5,22 @@ services:
       - "8880:8880"
     volumes:
       - hf-cache:/root/.cache/huggingface
+      - audio-cache:/app/audio_cache
     environment:
       - HF_HUB_DOWNLOAD_TIMEOUT=120
+      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_DB=kokoro
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
     restart: unless-stopped
 
 volumes:
   hf-cache:
+  audio-cache:
+  mongo-data:

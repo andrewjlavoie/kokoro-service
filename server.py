@@ -86,6 +86,18 @@ def _log_json(request_id: str, event: str, **kwargs):
             parts.append(f'"{k}":{v}')
     logger.info("{" + ",".join(parts) + "}")
 
+
+async def _persist_log(request_id: str, event: str, **kwargs):
+    """Write full log entry to MongoDB (fire-and-forget)."""
+    from db import persist_log
+    await persist_log(request_id, event, **kwargs)
+
+
+async def _persist_generation(**kwargs):
+    """Write generation record to MongoDB (fire-and-forget)."""
+    from db import persist_generation
+    await persist_generation(**kwargs)
+
 # ---------------------------------------------------------------------------
 # App state + request tracking
 # ---------------------------------------------------------------------------
@@ -149,6 +161,14 @@ def _read_cpu_percent() -> float:
 async def lifespan(app: FastAPI):
     global tts, _start_time
     _start_time = time.time()
+    # Initialize MongoDB (graceful — server works without it)
+    try:
+        from db import init_db
+        await init_db()
+        logger.info('"MongoDB connected"')
+    except Exception as e:
+        logger.warning(f'"MongoDB unavailable: {e} — running without persistence"')
+    # Load TTS model
     logger.info('"Loading Kokoro-82M model..."')
     t0 = time.monotonic()
     tts = KokoroTTS()
@@ -156,6 +176,8 @@ async def lifespan(app: FastAPI):
     elapsed = time.monotonic() - t0
     logger.info(f'"Model loaded in {elapsed:.1f}s"')
     yield
+    from db import close_db
+    await close_db()
     logger.info('"Server shutting down"')
 
 
@@ -168,7 +190,7 @@ app = FastAPI(title="Kokoro TTS", version="0.2.0", lifespan=lifespan)
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     # Skip logging for static files, websocket, health checks, and voice list
-    skip = request.url.path.startswith("/static") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/")
+    skip = request.url.path.startswith("/static") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/", "/generations")
     request_id = str(uuid.uuid4())[:8]
     request.state.request_id = request_id
     t0 = time.monotonic()
@@ -194,6 +216,16 @@ class SpeechRequest(BaseModel):
     input: str = Field(..., min_length=1, max_length=10000)
     voice: str = "af_heart"
     speed: float = 1.0
+
+
+class BatchItem(BaseModel):
+    input: str = Field(..., min_length=1, max_length=10000)
+    voice: str = "af_heart"
+    speed: float = 1.0
+
+
+class BatchRequest(BaseModel):
+    items: list[BatchItem] = Field(..., min_length=1, max_length=100)
 
 
 # ---------------------------------------------------------------------------
@@ -314,8 +346,33 @@ async def speech_stream(req: SpeechRequest):
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     request_id = str(uuid.uuid4())[:8]
-    text_preview = req.input[:80] + ("..." if len(req.input) > 80 else "")
-    _log_json(request_id, "stream_start", text=text_preview, voice=req.voice, speed=req.speed, chars=len(req.input))
+
+    # Check cache — return full WAV immediately on hit
+    import cache as audio_cache
+    cache_doc, cache_path = await audio_cache.lookup(req.input, req.voice, req.speed)
+    if cache_doc and cache_path:
+        _log_json(request_id, "cache_hit", text=req.input, voice=req.voice, cache_key=cache_doc["cache_key"][:12])
+        asyncio.create_task(_persist_log(request_id, "cache_hit", text=req.input, voice=req.voice, speed=req.speed))
+        asyncio.create_task(_persist_generation(
+            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+            audio_duration_sec=cache_doc["audio_duration_sec"], synth_time_ms=0,
+            sample_rate=cache_doc["sample_rate"], audio_size_bytes=cache_doc["file_size_bytes"],
+            endpoint="/v1/audio/speech", cache_hit=True, cache_id=str(cache_doc["_id"]),
+        ))
+        global _req_count, _total_audio_sec, _total_synth_ms
+        _req_count += 1
+        _total_audio_sec += cache_doc["audio_duration_sec"]
+        wav_bytes = cache_path.read_bytes()
+        return Response(content=wav_bytes, media_type="audio/wav", headers={
+            "X-Request-ID": request_id,
+            "X-Cache": "hit",
+        })
+
+    _log_json(request_id, "stream_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input))
+    asyncio.create_task(_persist_log(request_id, "stream_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input)))
+
+    # Collect all PCM for caching after stream completes
+    _pcm_chunks = []
 
     def generate():
         t0 = time.monotonic()
@@ -324,6 +381,7 @@ async def speech_stream(req: SpeechRequest):
         yield wav_header(SAMPLE_RATE)
         for segment in tts.synthesize_stream(req.input, voice=req.voice, speed=req.speed):
             pcm = audio_to_pcm16(segment)
+            _pcm_chunks.append(pcm)
             total_samples += len(segment)
             segment_count += 1
             seg_dur = len(segment) / SAMPLE_RATE
@@ -332,6 +390,17 @@ async def speech_stream(req: SpeechRequest):
         elapsed_ms = (time.monotonic() - t0) * 1000
         duration = total_samples / SAMPLE_RATE
         _log_json(request_id, "stream_complete", audio_duration=f"{duration:.2f}s", synth_time=f"{elapsed_ms:.0f}ms", segments=segment_count)
+        asyncio.create_task(_persist_log(request_id, "stream_complete", audio_duration=duration, synth_time_ms=elapsed_ms, segments=segment_count))
+        asyncio.create_task(_persist_generation(
+            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+            audio_duration_sec=duration, synth_time_ms=elapsed_ms, sample_rate=SAMPLE_RATE,
+            audio_size_bytes=total_samples * 2, endpoint="/v1/audio/speech",
+        ))
+        # Cache the complete audio
+        all_pcm = b"".join(_pcm_chunks)
+        pcm_size = len(all_pcm)
+        full_wav = wav_header(SAMPLE_RATE, data_size=pcm_size) + all_pcm
+        asyncio.create_task(audio_cache.store(req.input, req.voice, req.speed, full_wav, duration, SAMPLE_RATE))
         global _req_count, _total_audio_sec, _total_synth_ms
         _req_count += 1
         _total_audio_sec += duration
@@ -347,8 +416,37 @@ async def synthesize(req: SpeechRequest):
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     request_id = str(uuid.uuid4())[:8]
-    text_preview = req.input[:80] + ("..." if len(req.input) > 80 else "")
-    _log_json(request_id, "synth_start", text=text_preview, voice=req.voice, speed=req.speed, chars=len(req.input))
+
+    # Check cache first
+    import cache as audio_cache
+    cache_doc, cache_path = await audio_cache.lookup(req.input, req.voice, req.speed)
+    if cache_doc and cache_path:
+        _log_json(request_id, "cache_hit", text=req.input, voice=req.voice, cache_key=cache_doc["cache_key"][:12])
+        asyncio.create_task(_persist_log(request_id, "cache_hit", text=req.input, voice=req.voice, speed=req.speed))
+        asyncio.create_task(_persist_generation(
+            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+            audio_duration_sec=cache_doc["audio_duration_sec"], synth_time_ms=0,
+            sample_rate=cache_doc["sample_rate"], audio_size_bytes=cache_doc["file_size_bytes"],
+            endpoint="/synthesize", cache_hit=True, cache_id=str(cache_doc["_id"]),
+        ))
+        global _req_count, _total_audio_sec, _total_synth_ms
+        _req_count += 1
+        _total_audio_sec += cache_doc["audio_duration_sec"]
+        wav_bytes = cache_path.read_bytes()
+        return Response(
+            content=wav_bytes,
+            media_type="audio/wav",
+            headers={
+                "X-Request-ID": request_id,
+                "X-Audio-Duration": f"{cache_doc['audio_duration_sec']:.2f}",
+                "X-Sample-Rate": str(cache_doc["sample_rate"]),
+                "X-Voice": req.voice,
+                "X-Cache": "hit",
+            },
+        )
+
+    _log_json(request_id, "synth_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input))
+    asyncio.create_task(_persist_log(request_id, "synth_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input)))
 
     t0 = time.monotonic()
     audio, sr = tts.synthesize(req.input, voice=req.voice, speed=req.speed)
@@ -360,7 +458,7 @@ async def synthesize(req: SpeechRequest):
 
     duration = len(audio) / sr
     _log_json(request_id, "synth_complete", audio_duration=f"{duration:.2f}s", synth_time=f"{elapsed_ms:.0f}ms", size=f"{len(audio)*2//1024}KB")
-    global _req_count, _total_audio_sec, _total_synth_ms
+    asyncio.create_task(_persist_log(request_id, "synth_complete", audio_duration=duration, synth_time_ms=elapsed_ms, size_bytes=len(audio)*2))
     _req_count += 1
     _total_audio_sec += duration
     _total_synth_ms += elapsed_ms
@@ -369,6 +467,14 @@ async def synthesize(req: SpeechRequest):
     import soundfile as sf_write
     sf_write.write(buf, audio, sr, format="WAV", subtype="PCM_16")
     wav_bytes = buf.getvalue()
+
+    asyncio.create_task(_persist_generation(
+        request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+        audio_duration_sec=duration, synth_time_ms=elapsed_ms, sample_rate=sr,
+        audio_size_bytes=len(wav_bytes), endpoint="/synthesize",
+    ))
+    # Store in cache
+    asyncio.create_task(audio_cache.store(req.input, req.voice, req.speed, wav_bytes, duration, sr))
 
     return Response(
         content=wav_bytes,
@@ -380,6 +486,256 @@ async def synthesize(req: SpeechRequest):
             "X-Voice": req.voice,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Cache API (snippet library)
+# ---------------------------------------------------------------------------
+
+class TagRequest(BaseModel):
+    tags: list[str] = []
+    label: str | None = None
+
+
+@app.get("/cache")
+async def list_cache(search: str = "", tag: str = "", skip: int = 0, limit: int = 50):
+    """List cached audio entries with optional search and tag filtering."""
+    import cache as audio_cache
+    docs, total = await audio_cache.list_entries(search=search, tag=tag, skip=skip, limit=limit)
+    return {"entries": docs, "total": total}
+
+
+@app.get("/cache/{cache_id}/meta")
+async def get_cache_meta(cache_id: str):
+    """Get metadata for a cached audio entry."""
+    import cache as audio_cache
+    doc = await audio_cache.get_entry(cache_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Cache entry not found")
+    return doc
+
+
+@app.get("/cache/{cache_id}")
+async def get_cached_audio(cache_id: str):
+    """Download a cached audio file."""
+    import cache as audio_cache
+    doc = await audio_cache.get_entry(cache_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Cache entry not found")
+    file_path = audio_cache.CACHE_DIR / doc["file_path"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Audio file missing")
+    return FileResponse(file_path, media_type="audio/wav", filename=f"{doc['voice']}_{cache_id[:8]}.wav")
+
+
+@app.post("/cache/{cache_id}/tag")
+async def tag_cache_entry(cache_id: str, req: TagRequest):
+    """Update tags and/or label on a cache entry."""
+    import cache as audio_cache
+    doc = await audio_cache.update_tags(cache_id, tags=req.tags, label=req.label)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Cache entry not found")
+    return doc
+
+
+@app.delete("/cache/{cache_id}")
+async def delete_cache_entry(cache_id: str):
+    """Remove a cached audio entry and its file."""
+    import cache as audio_cache
+    deleted = await audio_cache.delete_entry(cache_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Cache entry not found")
+    return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Batch/Queue API
+# ---------------------------------------------------------------------------
+
+async def _process_batch(job_id: str):
+    """Process all items in a batch job. Runs as a background task."""
+    from db import batch_jobs, get_db
+    import cache as audio_cache
+    if get_db() is None or tts is None:
+        return
+    from datetime import datetime, timezone
+
+    await batch_jobs().update_one(
+        {"job_id": job_id},
+        {"$set": {"status": "processing", "started_at": datetime.now(timezone.utc)}},
+    )
+
+    job = await batch_jobs().find_one({"job_id": job_id})
+    if not job:
+        return
+
+    for i, item in enumerate(job["items"]):
+        try:
+            # Check cache first
+            cache_doc, cache_path = await audio_cache.lookup(item["text"], item["voice"], item["speed"])
+            if cache_doc and cache_path:
+                await batch_jobs().update_one(
+                    {"job_id": job_id},
+                    {"$set": {
+                        f"items.{i}.status": "completed",
+                        f"items.{i}.cache_id": str(cache_doc["_id"]),
+                        f"items.{i}.audio_duration_sec": cache_doc["audio_duration_sec"],
+                        f"items.{i}.synth_time_ms": 0,
+                        f"items.{i}.cache_hit": True,
+                    }, "$inc": {"completed_items": 1}},
+                )
+                continue
+
+            # Synthesize (run in thread to avoid blocking event loop)
+            import soundfile as sf_write
+            t0 = time.monotonic()
+            audio, sr = await asyncio.to_thread(tts.synthesize, item["text"], voice=item["voice"], speed=item["speed"])
+            elapsed_ms = (time.monotonic() - t0) * 1000
+
+            if len(audio) == 0:
+                await batch_jobs().update_one(
+                    {"job_id": job_id},
+                    {"$set": {f"items.{i}.status": "failed", f"items.{i}.error": "No audio generated"},
+                     "$inc": {"failed_items": 1}},
+                )
+                continue
+
+            duration = len(audio) / sr
+            buf = io.BytesIO()
+            sf_write.write(buf, audio, sr, format="WAV", subtype="PCM_16")
+            wav_bytes = buf.getvalue()
+
+            # Store in cache
+            stored = await audio_cache.store(item["text"], item["voice"], item["speed"], wav_bytes, duration, sr)
+            cache_id = str(stored["_id"]) if stored else None
+
+            await batch_jobs().update_one(
+                {"job_id": job_id},
+                {"$set": {
+                    f"items.{i}.status": "completed",
+                    f"items.{i}.cache_id": cache_id,
+                    f"items.{i}.audio_duration_sec": duration,
+                    f"items.{i}.synth_time_ms": round(elapsed_ms, 1),
+                    f"items.{i}.cache_hit": False,
+                }, "$inc": {"completed_items": 1}},
+            )
+
+            # Track global stats
+            global _req_count, _total_audio_sec, _total_synth_ms
+            _req_count += 1
+            _total_audio_sec += duration
+            _total_synth_ms += elapsed_ms
+
+        except Exception as e:
+            await batch_jobs().update_one(
+                {"job_id": job_id},
+                {"$set": {f"items.{i}.status": "failed", f"items.{i}.error": str(e)},
+                 "$inc": {"failed_items": 1}},
+            )
+
+    # Mark job complete
+    final_job = await batch_jobs().find_one({"job_id": job_id})
+    final_status = "completed" if final_job["failed_items"] == 0 else "partial"
+    await batch_jobs().update_one(
+        {"job_id": job_id},
+        {"$set": {"status": final_status, "completed_at": datetime.now(timezone.utc)}},
+    )
+    _log_json("batch", "batch_complete", job_id=job_id, status=final_status,
+              completed=final_job["completed_items"], failed=final_job["failed_items"])
+
+
+@app.post("/v1/audio/batch")
+async def submit_batch(req: BatchRequest):
+    """Submit a batch of synthesis requests. Returns job ID immediately."""
+    from db import batch_jobs, get_db
+    if get_db() is None:
+        raise HTTPException(status_code=503, detail="MongoDB required for batch processing")
+    if tts is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    from datetime import datetime, timezone
+
+    job_id = str(uuid.uuid4())
+    items = [
+        {
+            "index": i,
+            "text": item.input,
+            "voice": item.voice,
+            "speed": item.speed,
+            "status": "pending",
+            "cache_id": None,
+            "audio_duration_sec": None,
+            "synth_time_ms": None,
+            "cache_hit": False,
+            "error": None,
+        }
+        for i, item in enumerate(req.items)
+    ]
+    await batch_jobs().insert_one({
+        "job_id": job_id,
+        "status": "pending",
+        "items": items,
+        "total_items": len(items),
+        "completed_items": 0,
+        "failed_items": 0,
+        "created_at": datetime.now(timezone.utc),
+        "started_at": None,
+        "completed_at": None,
+    })
+    asyncio.create_task(_process_batch(job_id))
+    _log_json("batch", "batch_submitted", job_id=job_id, total_items=len(items))
+    return {"job_id": job_id, "status": "pending", "total_items": len(items)}
+
+
+@app.get("/v1/audio/batch/{job_id}")
+async def get_batch_status(job_id: str):
+    """Check batch job status and per-item progress."""
+    from db import batch_jobs, get_db
+    if get_db() is None:
+        raise HTTPException(status_code=503, detail="MongoDB unavailable")
+    doc = await batch_jobs().find_one({"job_id": job_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    # Convert datetimes
+    for field in ("created_at", "started_at", "completed_at"):
+        if doc.get(field):
+            doc[field] = doc[field].isoformat()
+    return doc
+
+
+@app.get("/v1/audio/batch")
+async def list_batch_jobs(skip: int = 0, limit: int = 20):
+    """List recent batch jobs."""
+    from db import batch_jobs, get_db
+    if get_db() is None:
+        return {"jobs": [], "total": 0}
+    cursor = batch_jobs().find({}, {"_id": 0, "items": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    total = await batch_jobs().count_documents({})
+    for doc in docs:
+        for field in ("created_at", "started_at", "completed_at"):
+            if doc.get(field):
+                doc[field] = doc[field].isoformat()
+    return {"jobs": docs, "total": total}
+
+
+# ---------------------------------------------------------------------------
+# Generation history + stats
+# ---------------------------------------------------------------------------
+
+@app.get("/generations")
+async def list_generations(skip: int = 0, limit: int = 50):
+    """List generation history from MongoDB."""
+    from db import get_db, generations
+    if get_db() is None:
+        return {"generations": [], "total": 0}
+    cursor = generations().find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    total = await generations().count_documents({})
+    # Convert datetime to ISO string for JSON serialization
+    for doc in docs:
+        if "created_at" in doc:
+            doc["created_at"] = doc["created_at"].isoformat()
+    return {"generations": docs, "total": total}
 
 
 # Mount static files last (so explicit routes take priority)

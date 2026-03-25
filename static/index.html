@@ -381,6 +381,183 @@ audio { width: 100%; margin-bottom: 8px; }
 .coming-soon p { margin-bottom: 8px; }
 .coming-soon small { font-size: 12px; }
 
+/* ---- Library ---- */
+.library-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+.library-toolbar button {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid #ffffff15;
+}
+.library-toolbar button:hover { background: #ffffff10; }
+.library-stats {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  font-family: var(--mono);
+}
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+}
+.library-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.library-card .lib-text {
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 60px;
+  overflow: hidden;
+  color: var(--text);
+}
+.library-card .lib-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  flex-wrap: wrap;
+}
+.library-card .lib-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.library-card .lib-tag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.library-card .lib-label {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.library-card .lib-actions {
+  display: flex;
+  gap: 6px;
+}
+.library-card .lib-actions button {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+  background: var(--surface2);
+  border: none;
+}
+.library-card .lib-actions button:hover { background: #ffffff15; }
+.library-card .lib-actions button.danger { color: var(--red); }
+.library-card .lib-actions button.danger:hover { background: #f8717120; }
+.library-card audio { width: 100%; height: 32px; }
+.library-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.library-pagination button {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid #ffffff15;
+}
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #00000080;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* ---- Queue ---- */
+.batch-job {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.batch-job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.batch-job-header .job-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.batch-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.batch-status.pending { background: #facc1520; color: var(--yellow); }
+.batch-status.processing { background: #60a5fa20; color: var(--blue); }
+.batch-status.completed { background: #4ade8020; color: var(--green); }
+.batch-status.partial { background: #f4728620; color: #f472b6; }
+.batch-status.failed { background: #f8717120; color: var(--red); }
+.batch-progress {
+  width: 100%;
+  height: 6px;
+  background: #ffffff10;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.batch-progress-bar {
+  height: 100%;
+  background: var(--green);
+  transition: width 0.3s;
+  border-radius: 3px;
+}
+.batch-items {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+.batch-item-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+  border-bottom: 1px solid #ffffff06;
+}
+.batch-item-row .item-status {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.batch-item-row .item-status.pending { background: var(--text-dim); }
+.batch-item-row .item-status.completed { background: var(--green); }
+.batch-item-row .item-status.failed { background: var(--red); }
+.batch-item-row .item-status.processing { background: var(--blue); }
+.batch-item-row .item-text {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* ---- Spinner ---- */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
@@ -420,6 +597,14 @@ audio { width: 100%; margin-bottom: 8px; }
     <div class="nav-item" data-page="voices">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
       Voice Styles
+    </div>
+    <div class="nav-item" data-page="library">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      Library
+    </div>
+    <div class="nav-item" data-page="queue">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Queue
     </div>
   </div>
   <div class="nav-footer" id="nav-footer">connecting...</div>
@@ -551,16 +736,71 @@ audio { width: 100%; margin-bottom: 8px; }
     </div>
   </div>
 
+  <!-- Library Page (Audio Cache) -->
+  <div class="page" id="page-library">
+    <div class="library-toolbar">
+      <input type="text" id="library-search" placeholder="Search cached audio..." style="flex:1; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px;">
+      <input type="text" id="library-tag-filter" placeholder="Filter by tag..." style="width:160px; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px;">
+      <button id="library-search-btn">Search</button>
+      <button id="library-refresh-btn">Refresh</button>
+    </div>
+    <div class="library-stats" id="library-stats"></div>
+    <div class="library-grid" id="library-grid">
+      <div style="color:var(--text-dim); text-align:center; padding:48px;">Loading cache entries...</div>
+    </div>
+    <div class="library-pagination" id="library-pagination"></div>
+
+    <!-- Tag editor modal -->
+    <div class="modal-overlay" id="tag-modal" style="display:none;">
+      <div class="card" style="max-width:440px; width:100%;">
+        <h2>Edit Tags</h2>
+        <input type="text" id="tag-input" placeholder="Tags (comma-separated)" style="width:100%; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px; margin-bottom:8px;">
+        <input type="text" id="label-input" placeholder="Label (e.g. greeting, farewell)" style="width:100%; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px; margin-bottom:12px;">
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button id="tag-cancel-btn" style="background:var(--surface2);">Cancel</button>
+          <button id="tag-save-btn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Queue Page (Batch Processing) -->
+  <div class="page" id="page-queue">
+    <div class="card">
+      <h2>Submit Batch</h2>
+      <textarea id="batch-input" placeholder="Enter one text per line to synthesize as a batch..." style="min-height:100px;"></textarea>
+      <div class="controls">
+        <div>
+          <label for="batch-voice">Voice</label>
+          <select id="batch-voice"></select>
+        </div>
+        <div>
+          <label>Speed</label>
+          <div class="speed-wrap">
+            <input type="range" id="batch-speed" min="0.5" max="2.0" step="0.1" value="1.0">
+            <span class="speed-val" id="batch-speed-val">1.0x</span>
+          </div>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="batch-submit-btn">Submit Batch</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Batch Jobs</h2>
+      <div id="batch-jobs-list">
+        <div style="color:var(--text-dim); text-align:center; padding:24px;">No batch jobs yet</div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
 // ---- State ----
 let paused = false;
 let logCount = 0;
-const history = [];
-let totalRequests = 0;
-let totalAudioDuration = 0;
-let totalSynthMs = 0;
 
 // ---- Nav ----
 document.querySelectorAll('.nav-item').forEach(item => {
@@ -691,10 +931,6 @@ async function pollStats() {
     document.getElementById('info-torch').textContent = s.model.torch_version;
     document.getElementById('info-python').textContent = s.server.python_version;
 
-    // Also update client-side counters to match server
-    totalRequests = s.tts.total_requests;
-    totalAudioDuration = s.tts.total_audio_seconds;
-    totalSynthMs = s.tts.total_synth_ms;
   } catch {
     healthDot.classList.remove('ready');
     navFooter.textContent = 'disconnected';
@@ -706,21 +942,35 @@ async function pollStats() {
 pollStats();
 setInterval(pollStats, 3000);
 
-function addHistoryEntry(entry) {
-  history.unshift(entry);
-  if (history.length > 50) history.pop();
-  const tbody = document.getElementById('history-body');
-  // Rebuild (simple for MVP)
-  tbody.innerHTML = history.map(e => `
-    <tr>
-      <td>${e.time}</td>
-      <td>${e.voice}</td>
-      <td class="text-preview">${escapeHtml(e.text)}</td>
-      <td>${e.audioDuration}s</td>
-      <td>${e.synthTime}s</td>
-    </tr>
-  `).join('');
+async function loadGenerations() {
+  try {
+    const res = await fetch('/generations?limit=50');
+    if (!res.ok) return;
+    const data = await res.json();
+    const tbody = document.getElementById('history-body');
+    if (data.generations.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:24px;">No generations yet — go to Generate to create your first one</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.generations.map(g => {
+      const time = g.created_at ? new Date(g.created_at).toLocaleTimeString() : '—';
+      const text = (g.text || '').substring(0, 100);
+      const dur = g.audio_duration_sec != null ? g.audio_duration_sec.toFixed(2) : '—';
+      const synth = g.synth_time_ms != null ? (g.synth_time_ms / 1000).toFixed(2) : '—';
+      const cacheTag = g.cache_hit ? ' <span style="color:var(--green);font-size:10px;">CACHE</span>' : '';
+      return `<tr>
+        <td>${time}</td>
+        <td>${escapeHtml(g.voice || '—')}</td>
+        <td class="text-preview">${escapeHtml(text)}</td>
+        <td>${dur}s${cacheTag}</td>
+        <td>${synth}s</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    // Silently fail — dashboard still works without MongoDB
+  }
 }
+loadGenerations();
 
 // ---- Generate ----
 generateBtn.addEventListener('click', async () => {
@@ -768,14 +1018,8 @@ generateBtn.addEventListener('click', async () => {
     `;
     audioPlayer.play();
 
-    // Track history (server-side stats refresh via pollStats)
-    addHistoryEntry({
-      time: new Date().toLocaleTimeString(),
-      voice,
-      text: text.substring(0, 100),
-      audioDuration: parseFloat(duration).toFixed(2),
-      synthTime: elapsedSec,
-    });
+    // Refresh generation history from MongoDB
+    setTimeout(loadGenerations, 500);
   } catch (e) {
     alert('Request failed: ' + e.message);
   } finally {
@@ -936,6 +1180,278 @@ pauseBtn.addEventListener('click', () => {
   pauseBtn.textContent = paused ? 'Resume' : 'Pause';
 });
 clearBtn.addEventListener('click', () => { logFeed.innerHTML = ''; });
+
+// ---- Library (Audio Cache) ----
+let libraryPage = 0;
+const libraryLimit = 20;
+let editingCacheId = null;
+
+async function loadLibrary(page = 0) {
+  libraryPage = page;
+  const search = document.getElementById('library-search').value.trim();
+  const tag = document.getElementById('library-tag-filter').value.trim();
+  const skip = page * libraryLimit;
+  const params = new URLSearchParams({ skip, limit: libraryLimit });
+  if (search) params.set('search', search);
+  if (tag) params.set('tag', tag);
+  try {
+    const res = await fetch('/cache?' + params);
+    if (!res.ok) throw new Error('Failed to load');
+    const data = await res.json();
+    const grid = document.getElementById('library-grid');
+    const stats = document.getElementById('library-stats');
+    stats.textContent = `${data.total} cached entries`;
+    if (data.entries.length === 0) {
+      grid.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:48px; grid-column:1/-1;">No cached audio found. Generate speech to populate the cache.</div>';
+      document.getElementById('library-pagination').innerHTML = '';
+      return;
+    }
+    grid.innerHTML = data.entries.map(e => {
+      const text = escapeHtml((e.text || '').substring(0, 150));
+      const dur = e.audio_duration_sec != null ? e.audio_duration_sec.toFixed(2) : '?';
+      const size = e.file_size_bytes ? (e.file_size_bytes / 1024).toFixed(0) + 'KB' : '?';
+      const hits = e.hit_count || 0;
+      const tags = (e.tags || []).map(t => `<span class="lib-tag">${escapeHtml(t)}</span>`).join('');
+      const label = e.label ? `<span class="lib-label">${escapeHtml(e.label)}</span>` : '';
+      const created = e.created_at ? new Date(e.created_at).toLocaleString() : '';
+      return `<div class="library-card" data-id="${e._id}">
+        ${label}
+        <div class="lib-text">${text}</div>
+        <div class="lib-meta">
+          <span>${escapeHtml(e.voice || '?')}</span>
+          <span>${dur}s</span>
+          <span>${size}</span>
+          <span>${hits} hits</span>
+          <span>speed: ${e.speed || 1}x</span>
+        </div>
+        <div class="lib-tags">${tags}</div>
+        <audio controls preload="none" src="/cache/${e._id}"></audio>
+        <div class="lib-actions">
+          <button onclick="openTagEditor('${e._id}', ${JSON.stringify(JSON.stringify(e.tags || []))}, ${JSON.stringify(JSON.stringify(e.label || ''))})">Tags</button>
+          <button class="danger" onclick="deleteLibraryEntry('${e._id}')">Delete</button>
+        </div>
+        <div style="font-size:10px; color:var(--text-dim);">${created}</div>
+      </div>`;
+    }).join('');
+    // Pagination
+    const totalPages = Math.ceil(data.total / libraryLimit);
+    const pag = document.getElementById('library-pagination');
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    let pagHtml = '';
+    if (page > 0) pagHtml += `<button onclick="loadLibrary(${page - 1})">Prev</button>`;
+    pagHtml += `<span style="color:var(--text-dim); font-size:12px; line-height:30px;">Page ${page + 1} / ${totalPages}</span>`;
+    if (page < totalPages - 1) pagHtml += `<button onclick="loadLibrary(${page + 1})">Next</button>`;
+    pag.innerHTML = pagHtml;
+  } catch {
+    document.getElementById('library-grid').innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:48px; grid-column:1/-1;">Failed to load cache. MongoDB may be unavailable.</div>';
+  }
+}
+
+document.getElementById('library-search-btn').addEventListener('click', () => loadLibrary(0));
+document.getElementById('library-refresh-btn').addEventListener('click', () => loadLibrary(libraryPage));
+document.getElementById('library-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') loadLibrary(0);
+});
+
+function openTagEditor(cacheId, tags, label) {
+  editingCacheId = cacheId;
+  document.getElementById('tag-input').value = Array.isArray(tags) ? tags.join(', ') : (typeof tags === 'string' ? JSON.parse(tags).join(', ') : '');
+  document.getElementById('label-input').value = typeof label === 'string' ? (label.startsWith('"') ? JSON.parse(label) : label) : '';
+  document.getElementById('tag-modal').style.display = 'flex';
+}
+
+document.getElementById('tag-cancel-btn').addEventListener('click', () => {
+  document.getElementById('tag-modal').style.display = 'none';
+  editingCacheId = null;
+});
+
+document.getElementById('tag-save-btn').addEventListener('click', async () => {
+  if (!editingCacheId) return;
+  const tags = document.getElementById('tag-input').value.split(',').map(t => t.trim()).filter(Boolean);
+  const label = document.getElementById('label-input').value.trim() || null;
+  try {
+    await fetch(`/cache/${editingCacheId}/tag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags, label }),
+    });
+    document.getElementById('tag-modal').style.display = 'none';
+    editingCacheId = null;
+    loadLibrary(libraryPage);
+  } catch {
+    alert('Failed to save tags');
+  }
+});
+
+async function deleteLibraryEntry(cacheId) {
+  if (!confirm('Delete this cached audio?')) return;
+  try {
+    await fetch(`/cache/${cacheId}`, { method: 'DELETE' });
+    loadLibrary(libraryPage);
+  } catch {
+    alert('Failed to delete');
+  }
+}
+
+// Load library when navigating to the page
+document.querySelector('.nav-item[data-page="library"]').addEventListener('click', () => loadLibrary(0));
+
+// ---- Queue (Batch Processing) ----
+const batchPollers = {};  // job_id -> interval
+
+document.getElementById('batch-speed').addEventListener('input', function() {
+  document.getElementById('batch-speed-val').textContent = parseFloat(this.value).toFixed(1) + 'x';
+});
+
+// Populate batch voice selector (clone from main voice list after load)
+async function initBatchVoices() {
+  try {
+    const res = await fetch('/voices');
+    const data = await res.json();
+    const sel = document.getElementById('batch-voice');
+    sel.innerHTML = '';
+    const groups = {};
+    data.voices.forEach(v => {
+      const prefix = v.name.split(' - ')[0] || 'Other';
+      if (!groups[prefix]) groups[prefix] = [];
+      groups[prefix].push(v);
+    });
+    for (const [group, voices] of Object.entries(groups)) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = group;
+      voices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = `${v.id} — ${v.name.split(' - ')[1] || v.name}`;
+        optgroup.appendChild(opt);
+      });
+      sel.appendChild(optgroup);
+    }
+  } catch {}
+}
+initBatchVoices();
+
+document.getElementById('batch-submit-btn').addEventListener('click', async () => {
+  const text = document.getElementById('batch-input').value.trim();
+  if (!text) return;
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return;
+  const voice = document.getElementById('batch-voice').value;
+  const speed = parseFloat(document.getElementById('batch-speed').value);
+  const items = lines.map(line => ({ input: line, voice, speed }));
+  const btn = document.getElementById('batch-submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Submitting...';
+  try {
+    const res = await fetch('/v1/audio/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert('Error: ' + (err.detail || res.statusText));
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('batch-input').value = '';
+    startPollingJob(data.job_id);
+    loadBatchJobs();
+  } catch (e) {
+    alert('Request failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Submit Batch';
+  }
+});
+
+function startPollingJob(jobId) {
+  if (batchPollers[jobId]) return;
+  batchPollers[jobId] = setInterval(async () => {
+    try {
+      const res = await fetch(`/v1/audio/batch/${jobId}`);
+      if (!res.ok) return;
+      const job = await res.json();
+      renderJobDetail(job);
+      if (job.status === 'completed' || job.status === 'partial' || job.status === 'failed') {
+        clearInterval(batchPollers[jobId]);
+        delete batchPollers[jobId];
+      }
+    } catch {}
+  }, 2000);
+}
+
+async function loadBatchJobs() {
+  try {
+    const res = await fetch('/v1/audio/batch?limit=20');
+    if (!res.ok) return;
+    const data = await res.json();
+    const container = document.getElementById('batch-jobs-list');
+    if (data.jobs.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:24px;">No batch jobs yet</div>';
+      return;
+    }
+    container.innerHTML = data.jobs.map(j => {
+      const pct = j.total_items > 0 ? Math.round((j.completed_items + j.failed_items) / j.total_items * 100) : 0;
+      const created = j.created_at ? new Date(j.created_at).toLocaleString() : '';
+      return `<div class="batch-job" id="job-${j.job_id}">
+        <div class="batch-job-header">
+          <span class="job-id">${j.job_id.substring(0, 8)}</span>
+          <span class="batch-status ${j.status}">${j.status}</span>
+        </div>
+        <div class="batch-progress"><div class="batch-progress-bar" style="width:${pct}%"></div></div>
+        <div class="batch-items">
+          ${j.completed_items}/${j.total_items} completed${j.failed_items ? `, ${j.failed_items} failed` : ''} — ${created}
+        </div>
+        <div id="job-items-${j.job_id}"></div>
+        <button onclick="loadJobDetail('${j.job_id}')" style="height:26px; padding:0 10px; font-size:11px; background:var(--surface2); border:none; margin-top:8px;">Details</button>
+      </div>`;
+    }).join('');
+    // Start polling for active jobs
+    data.jobs.filter(j => j.status === 'pending' || j.status === 'processing').forEach(j => startPollingJob(j.job_id));
+  } catch {}
+}
+
+async function loadJobDetail(jobId) {
+  try {
+    const res = await fetch(`/v1/audio/batch/${jobId}`);
+    if (!res.ok) return;
+    const job = await res.json();
+    renderJobDetail(job);
+  } catch {}
+}
+
+function renderJobDetail(job) {
+  const el = document.getElementById(`job-items-${job.job_id}`);
+  if (!el) { loadBatchJobs(); return; }
+  const pct = job.total_items > 0 ? Math.round((job.completed_items + job.failed_items) / job.total_items * 100) : 0;
+  // Update progress bar and status
+  const jobEl = document.getElementById(`job-${job.job_id}`);
+  if (jobEl) {
+    const statusEl = jobEl.querySelector('.batch-status');
+    if (statusEl) { statusEl.textContent = job.status; statusEl.className = `batch-status ${job.status}`; }
+    const barEl = jobEl.querySelector('.batch-progress-bar');
+    if (barEl) barEl.style.width = pct + '%';
+    const infoEl = jobEl.querySelector('.batch-items');
+    if (infoEl) infoEl.textContent = `${job.completed_items}/${job.total_items} completed${job.failed_items ? `, ${job.failed_items} failed` : ''}`;
+  }
+  el.innerHTML = (job.items || []).map(item => {
+    const text = escapeHtml((item.text || '').substring(0, 80));
+    const dur = item.audio_duration_sec != null ? item.audio_duration_sec.toFixed(2) + 's' : '';
+    const synth = item.synth_time_ms != null ? item.synth_time_ms.toFixed(0) + 'ms' : '';
+    const cacheTag = item.cache_hit ? '<span style="color:var(--green)">cache</span>' : '';
+    const playBtn = item.cache_id ? `<audio controls preload="none" src="/cache/${item.cache_id}" style="height:24px; width:160px;"></audio>` : '';
+    const err = item.error ? `<span style="color:var(--red)">${escapeHtml(item.error)}</span>` : '';
+    return `<div class="batch-item-row">
+      <div class="item-status ${item.status}"></div>
+      <span class="item-text">${text}</span>
+      <span>${dur}</span><span>${synth}</span>${cacheTag}${playBtn}${err}
+    </div>`;
+  }).join('');
+}
+
+// Load batch jobs when navigating to queue page
+document.querySelector('.nav-item[data-page="queue"]').addEventListener('click', () => loadBatchJobs());
 </script>
 </body>
 </html>
