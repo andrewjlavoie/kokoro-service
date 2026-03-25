@@ -9,6 +9,102 @@ from bson import ObjectId
 
 CACHE_DIR = Path(os.environ.get("AUDIO_CACHE_DIR", "/app/audio_cache"))
 
+# Default cache settings — overridden by MongoDB settings collection
+DEFAULT_SETTINGS = {
+    "enabled": True,
+    "min_text_length": 10,       # don't cache very short texts like "ok", "yes"
+    "max_text_length": 5000,     # skip caching extremely long texts
+    "max_audio_duration": 120,   # seconds — skip caching very long generations
+    "max_file_size_mb": 50,      # per-entry WAV size limit in MB
+    "max_total_size_mb": 1024,   # overall cache disk usage cap (1 GB)
+    "max_entries": 5000,         # cap on total cached items
+    "ttl_days": 30,              # auto-expire entries not accessed in N days (0 = never)
+}
+
+# In-memory settings cache (refreshed from MongoDB)
+_settings: dict = dict(DEFAULT_SETTINGS)
+
+
+async def get_settings() -> dict:
+    """Return current cache settings (from memory)."""
+    return dict(_settings)
+
+
+async def load_settings():
+    """Load cache settings from MongoDB into memory."""
+    from db import settings, get_db
+    if get_db() is None:
+        return
+    doc = await settings().find_one({"_id": "cache"})
+    if doc:
+        for key in DEFAULT_SETTINGS:
+            if key in doc:
+                _settings[key] = doc[key]
+
+
+async def save_settings(updates: dict) -> dict:
+    """Save cache settings to MongoDB and update memory."""
+    from db import settings, get_db
+    if get_db() is None:
+        return dict(_settings)
+    # Only accept known keys
+    valid = {k: v for k, v in updates.items() if k in DEFAULT_SETTINGS}
+    _settings.update(valid)
+    await settings().update_one(
+        {"_id": "cache"},
+        {"$set": valid},
+        upsert=True,
+    )
+    return dict(_settings)
+
+
+async def should_cache(text: str, wav_bytes: bytes | None = None, duration: float | None = None) -> bool:
+    """Check if this generation should be cached based on current settings."""
+    if not _settings["enabled"]:
+        return False
+    if len(text) < _settings["min_text_length"]:
+        return False
+    if len(text) > _settings["max_text_length"]:
+        return False
+    if duration is not None and duration > _settings["max_audio_duration"]:
+        return False
+    if wav_bytes is not None and len(wav_bytes) > _settings["max_file_size_mb"] * 1024 * 1024:
+        return False
+    from db import cache as cache_coll, get_db
+    if get_db() is None:
+        return True
+    # Check total entry count
+    if _settings["max_entries"] > 0:
+        count = await cache_coll().count_documents({})
+        if count >= _settings["max_entries"]:
+            return False
+    # Check total cache size on disk
+    if _settings["max_total_size_mb"] > 0:
+        pipeline = [{"$group": {"_id": None, "total": {"$sum": "$file_size_bytes"}}}]
+        result = await cache_coll().aggregate(pipeline).to_list(1)
+        total_bytes = result[0]["total"] if result else 0
+        if total_bytes >= _settings["max_total_size_mb"] * 1024 * 1024:
+            return False
+    return True
+
+
+async def enforce_ttl():
+    """Remove cache entries that haven't been accessed within TTL days."""
+    from db import cache as cache_coll, get_db
+    if get_db() is None or _settings["ttl_days"] <= 0:
+        return 0
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_settings["ttl_days"])
+    expired = cache_coll().find({"last_accessed_at": {"$lt": cutoff}})
+    removed = 0
+    async for doc in expired:
+        file_path = CACHE_DIR / doc["file_path"]
+        if file_path.exists():
+            file_path.unlink()
+        await cache_coll().delete_one({"_id": doc["_id"]})
+        removed += 1
+    return removed
+
 
 def compute_cache_key(text: str, voice: str, speed: float) -> str:
     """SHA-256 hash of normalized (text, voice, speed) tuple."""
@@ -38,9 +134,11 @@ async def lookup(text: str, voice: str, speed: float):
 
 
 async def store(text: str, voice: str, speed: float, wav_bytes: bytes, duration: float, sample_rate: int):
-    """Store audio in cache. Returns the cache document or None on failure."""
+    """Store audio in cache. Returns the cache document or None if skipped/failed."""
     from db import cache, get_db
     if get_db() is None:
+        return None
+    if not await should_cache(text, wav_bytes=wav_bytes, duration=duration):
         return None
     key = compute_cache_key(text, voice, speed)
     shard = key[:2]

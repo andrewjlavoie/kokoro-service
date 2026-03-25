@@ -54,6 +54,10 @@ def batch_jobs():
     return _db["batch_jobs"]
 
 
+def settings():
+    return _db["settings"]
+
+
 async def persist_log(request_id: str | None, event: str, **kwargs):
     """Write a full log entry to MongoDB (fire-and-forget safe)."""
     if _db is None:

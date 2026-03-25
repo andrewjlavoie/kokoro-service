@@ -558,6 +558,70 @@ audio { width: 100%; margin-bottom: 8px; }
   text-overflow: ellipsis;
 }
 
+/* ---- Settings ---- */
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #ffffff08;
+}
+.setting-row:last-child { border-bottom: none; }
+.setting-info { flex: 1; min-width: 0; }
+.setting-label { font-size: 14px; font-weight: 500; }
+.setting-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.setting-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.setting-input input[type="number"] {
+  width: 90px;
+  height: 34px;
+  background: var(--bg);
+  border: 1px solid #ffffff15;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  font-family: var(--mono);
+  padding: 0 10px;
+  text-align: right;
+}
+.setting-input input[type="number"]:focus { outline: none; border-color: var(--accent); }
+.setting-input span {
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 50px;
+}
+/* Toggle switch */
+.toggle { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #ffffff20;
+  border-radius: 12px;
+  transition: 0.2s;
+}
+.toggle-slider:before {
+  content: "";
+  position: absolute;
+  height: 18px; width: 18px;
+  left: 3px; bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.2s;
+}
+.toggle input:checked + .toggle-slider { background: var(--green); }
+.toggle input:checked + .toggle-slider:before { transform: translateX(20px); }
+
 /* ---- Spinner ---- */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
@@ -605,6 +669,10 @@ audio { width: 100%; margin-bottom: 8px; }
     <div class="nav-item" data-page="queue">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Queue
+    </div>
+    <div class="nav-item" data-page="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
     </div>
   </div>
   <div class="nav-footer" id="nav-footer">connecting...</div>
@@ -792,6 +860,78 @@ audio { width: 100%; margin-bottom: 8px; }
       <div id="batch-jobs-list">
         <div style="color:var(--text-dim); text-align:center; padding:24px;">No batch jobs yet</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Settings Page -->
+  <div class="page" id="page-settings">
+    <div class="card">
+      <h2>Cache Settings</h2>
+      <p style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">Control what gets cached. Changes take effect immediately.</p>
+      <div class="settings-form" id="settings-form">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Cache Enabled</div>
+            <div class="setting-desc">Master switch for the audio cache</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="set-enabled" checked><span class="toggle-slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Min Text Length</div>
+            <div class="setting-desc">Don't cache texts shorter than this (avoids caching "ok", "yes", etc.)</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-min-text" min="0" value="10"><span>chars</span></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Max Text Length</div>
+            <div class="setting-desc">Don't cache texts longer than this</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-max-text" min="0" value="5000"><span>chars</span></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Max Audio Duration</div>
+            <div class="setting-desc">Skip caching generations longer than this</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-max-duration" min="0" value="120"><span>seconds</span></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Max File Size</div>
+            <div class="setting-desc">Per-entry WAV file size limit</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-max-file" min="0" value="50"><span>MB</span></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Max Total Cache Size</div>
+            <div class="setting-desc">Overall disk usage cap for all cached audio</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-max-total" min="0" value="1024"><span>MB</span></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Max Entries</div>
+            <div class="setting-desc">Maximum number of cached items (0 = unlimited)</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-max-entries" min="0" value="5000"><span>entries</span></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">TTL (Time to Live)</div>
+            <div class="setting-desc">Auto-expire entries not accessed within this many days (0 = never expire)</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-ttl" min="0" value="30"><span>days</span></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        <button id="settings-save-btn">Save Settings</button>
+        <button id="settings-reset-btn" style="background:var(--surface2);">Reset to Defaults</button>
+        <button id="ttl-cleanup-btn" style="background:var(--surface2);">Run TTL Cleanup</button>
+      </div>
+      <div id="settings-status" style="font-size:12px; color:var(--green); margin-top:8px; font-family:var(--mono); display:none;"></div>
     </div>
   </div>
 
@@ -1452,6 +1592,121 @@ function renderJobDetail(job) {
 
 // Load batch jobs when navigating to queue page
 document.querySelector('.nav-item[data-page="queue"]').addEventListener('click', () => loadBatchJobs());
+
+// ---- Settings ----
+const settingsMap = {
+  'set-enabled': 'enabled',
+  'set-min-text': 'min_text_length',
+  'set-max-text': 'max_text_length',
+  'set-max-duration': 'max_audio_duration',
+  'set-max-file': 'max_file_size_mb',
+  'set-max-total': 'max_total_size_mb',
+  'set-max-entries': 'max_entries',
+  'set-ttl': 'ttl_days',
+};
+
+const defaultSettings = {
+  enabled: true,
+  min_text_length: 10,
+  max_text_length: 5000,
+  max_audio_duration: 120,
+  max_file_size_mb: 50,
+  max_total_size_mb: 1024,
+  max_entries: 5000,
+  ttl_days: 30,
+};
+
+function populateSettings(s) {
+  document.getElementById('set-enabled').checked = s.enabled;
+  document.getElementById('set-min-text').value = s.min_text_length;
+  document.getElementById('set-max-text').value = s.max_text_length;
+  document.getElementById('set-max-duration').value = s.max_audio_duration;
+  document.getElementById('set-max-file').value = s.max_file_size_mb;
+  document.getElementById('set-max-total').value = s.max_total_size_mb;
+  document.getElementById('set-max-entries').value = s.max_entries;
+  document.getElementById('set-ttl').value = s.ttl_days;
+}
+
+function collectSettings() {
+  return {
+    enabled: document.getElementById('set-enabled').checked,
+    min_text_length: parseInt(document.getElementById('set-min-text').value) || 0,
+    max_text_length: parseInt(document.getElementById('set-max-text').value) || 0,
+    max_audio_duration: parseInt(document.getElementById('set-max-duration').value) || 0,
+    max_file_size_mb: parseInt(document.getElementById('set-max-file').value) || 0,
+    max_total_size_mb: parseInt(document.getElementById('set-max-total').value) || 0,
+    max_entries: parseInt(document.getElementById('set-max-entries').value) || 0,
+    ttl_days: parseInt(document.getElementById('set-ttl').value) || 0,
+  };
+}
+
+function showSettingsStatus(msg, isError) {
+  const el = document.getElementById('settings-status');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red)' : 'var(--green)';
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/settings/cache');
+    if (!res.ok) throw new Error('Failed');
+    const s = await res.json();
+    populateSettings(s);
+  } catch {
+    // Use defaults if MongoDB unavailable
+    populateSettings(defaultSettings);
+  }
+}
+
+document.getElementById('settings-save-btn').addEventListener('click', async () => {
+  const settings = collectSettings();
+  try {
+    const res = await fetch('/settings/cache', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    if (!res.ok) throw new Error('Failed');
+    const updated = await res.json();
+    populateSettings(updated);
+    showSettingsStatus('Settings saved');
+  } catch {
+    showSettingsStatus('Failed to save settings', true);
+  }
+});
+
+document.getElementById('settings-reset-btn').addEventListener('click', async () => {
+  if (!confirm('Reset all cache settings to defaults?')) return;
+  try {
+    const res = await fetch('/settings/cache', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(defaultSettings),
+    });
+    if (!res.ok) throw new Error('Failed');
+    const updated = await res.json();
+    populateSettings(updated);
+    showSettingsStatus('Settings reset to defaults');
+  } catch {
+    showSettingsStatus('Failed to reset settings', true);
+  }
+});
+
+document.getElementById('ttl-cleanup-btn').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/settings/cache/ttl-cleanup', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed');
+    const data = await res.json();
+    showSettingsStatus(`TTL cleanup: ${data.removed} entries removed`);
+  } catch {
+    showSettingsStatus('Failed to run cleanup', true);
+  }
+});
+
+// Load settings when navigating to the page
+document.querySelector('.nav-item[data-page="settings"]').addEventListener('click', loadSettings);
 </script>
 </body>
 </html>

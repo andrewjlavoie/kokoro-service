@@ -166,6 +166,9 @@ async def lifespan(app: FastAPI):
         from db import init_db
         await init_db()
         logger.info('"MongoDB connected"')
+        # Load cache settings from MongoDB
+        import cache as audio_cache
+        await audio_cache.load_settings()
     except Exception as e:
         logger.warning(f'"MongoDB unavailable: {e} — running without persistence"')
     # Load TTS model
@@ -546,6 +549,34 @@ async def delete_cache_entry(cache_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Cache entry not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Settings API
+# ---------------------------------------------------------------------------
+
+@app.get("/settings/cache")
+async def get_cache_settings():
+    """Get current cache settings."""
+    import cache as audio_cache
+    return await audio_cache.get_settings()
+
+
+@app.put("/settings/cache")
+async def update_cache_settings(req: Request):
+    """Update cache settings."""
+    import cache as audio_cache
+    body = await req.json()
+    updated = await audio_cache.save_settings(body)
+    return updated
+
+
+@app.post("/settings/cache/ttl-cleanup")
+async def run_ttl_cleanup():
+    """Manually trigger TTL cleanup of expired cache entries."""
+    import cache as audio_cache
+    removed = await audio_cache.enforce_ttl()
+    return {"removed": removed}
 
 
 # ---------------------------------------------------------------------------
