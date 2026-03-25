@@ -193,7 +193,7 @@ app = FastAPI(title="Kokoro TTS", version="0.2.0", lifespan=lifespan)
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     # Skip logging for static files, websocket, health checks, and voice list
-    skip = request.url.path.startswith("/static") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/", "/generations")
+    skip = request.url.path.startswith("/static") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/", "/generations", "/logs", "/logs/events")
     request_id = str(uuid.uuid4())[:8]
     request.state.request_id = request_id
     t0 = time.monotonic()
@@ -207,6 +207,11 @@ async def log_requests(request: Request, call_next):
             f'"status":{response.status_code},'
             f'"duration_ms":{elapsed_ms:.1f}}}'
         )
+        asyncio.create_task(_persist_log(
+            request_id, "http_request",
+            method=request.method, path=request.url.path,
+            status=response.status_code, duration_ms=round(elapsed_ms, 1),
+        ))
     response.headers["X-Request-ID"] = request_id
     return response
 
@@ -457,6 +462,7 @@ async def synthesize(req: SpeechRequest):
 
     if len(audio) == 0:
         _log_json(request_id, "synth_empty", error="No audio generated")
+        asyncio.create_task(_persist_log(request_id, "synth_empty", text=req.input, voice=req.voice, error="No audio generated"))
         raise HTTPException(status_code=400, detail="No audio generated")
 
     duration = len(audio) / sr
@@ -752,6 +758,50 @@ async def list_batch_jobs(skip: int = 0, limit: int = 20):
 # ---------------------------------------------------------------------------
 # Generation history + stats
 # ---------------------------------------------------------------------------
+
+@app.get("/logs")
+async def list_logs(
+    skip: int = 0,
+    limit: int = 50,
+    event: str = "",
+    request_id: str = "",
+    search: str = "",
+):
+    """List logs from MongoDB with filtering and pagination."""
+    from db import get_db, logs
+    if get_db() is None:
+        return {"logs": [], "total": 0}
+    query = {}
+    if event:
+        query["event"] = event
+    if request_id:
+        query["request_id"] = request_id
+    if search:
+        # Search in data fields — match text content
+        query["$or"] = [
+            {"data.text": {"$regex": search, "$options": "i"}},
+            {"data.path": {"$regex": search, "$options": "i"}},
+            {"data.error": {"$regex": search, "$options": "i"}},
+            {"request_id": {"$regex": search, "$options": "i"}},
+        ]
+    cursor = logs().find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    total = await logs().count_documents(query)
+    for doc in docs:
+        if "created_at" in doc:
+            doc["created_at"] = doc["created_at"].isoformat()
+    return {"logs": docs, "total": total}
+
+
+@app.get("/logs/events")
+async def list_log_events():
+    """List distinct event types in the logs collection."""
+    from db import get_db, logs
+    if get_db() is None:
+        return {"events": []}
+    events = await logs().distinct("event")
+    return {"events": sorted(events)}
+
 
 @app.get("/generations")
 async def list_generations(skip: int = 0, limit: int = 50):

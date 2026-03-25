@@ -369,6 +369,30 @@ audio { width: 100%; margin-bottom: 8px; }
 .log-entry.evt-synth_complete, .log-entry.evt-stream_complete { border-left-color: var(--green); }
 .log-entry.evt-synth_empty { border-left-color: var(--red); }
 .log-entry.evt-stream_segment { border-left-color: #818cf8; }
+.log-entry.evt-cache_hit { border-left-color: var(--green); }
+.log-entry.evt-http_request { border-left-color: #34d399; }
+.tag.cache_hit { color: var(--green); background: #4ade8018; }
+.tag.http_request { color: #34d399; background: #34d39918; }
+.log-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 4px 0;
+}
+.log-pagination button {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  background: var(--surface);
+  border: 1px solid #ffffff15;
+}
+.log-pagination span {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
 
 /* ---- Voice Styles ---- */
 .coming-soon {
@@ -785,15 +809,21 @@ audio { width: 100%; margin-bottom: 8px; }
   <!-- Logs Page -->
   <div class="page" id="page-logs">
     <div class="logs-toolbar">
-      <div class="ws-dot" id="ws-dot"></div>
-      <span class="ws-label" id="ws-label">connecting...</span>
+      <input type="text" id="log-search" placeholder="Search logs..." style="flex:1; min-width:120px; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:6px 10px; border-radius:var(--radius); font-size:12px; font-family:var(--mono);">
+      <select id="log-event-filter" style="width:140px; height:30px; background:var(--surface); border:1px solid #ffffff20; color:var(--text); border-radius:var(--radius); font-size:12px; padding:0 6px;">
+        <option value="">All events</option>
+      </select>
+      <input type="text" id="log-request-filter" placeholder="Request ID" style="width:100px; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:6px 10px; border-radius:var(--radius); font-size:12px; font-family:var(--mono);">
+      <button id="log-search-btn">Search</button>
       <div class="spacer"></div>
+      <div class="ws-dot" id="ws-dot"></div>
+      <span class="ws-label" id="ws-label">live</span>
+      <label class="toggle" style="margin:0 4px;" title="Live mode"><input type="checkbox" id="log-live-toggle" checked><span class="toggle-slider"></span></label>
       <button id="expand-all-btn">Expand All</button>
       <button id="collapse-all-btn">Collapse All</button>
-      <button id="pause-btn">Pause</button>
-      <button id="clear-btn">Clear</button>
     </div>
     <div class="log-feed" id="log-feed"></div>
+    <div class="log-pagination" id="log-pagination"></div>
   </div>
 
   <!-- Voice Styles Page -->
@@ -942,7 +972,6 @@ audio { width: 100%; margin-bottom: 8px; }
 
 <script>
 // ---- State ----
-let paused = false;
 let logCount = 0;
 
 // ---- Nav ----
@@ -952,11 +981,6 @@ document.querySelectorAll('.nav-item').forEach(item => {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     item.classList.add('active');
     document.getElementById('page-' + item.dataset.page).classList.add('active');
-    // Reset log badge when viewing logs
-    if (item.dataset.page === 'logs') {
-      logCount = 0;
-      document.getElementById('log-badge').style.display = 'none';
-    }
   });
 });
 
@@ -973,8 +997,6 @@ const logFeed = document.getElementById('log-feed');
 const healthDot = document.getElementById('health-dot');
 const wsDot = document.getElementById('ws-dot');
 const wsLabel = document.getElementById('ws-label');
-const pauseBtn = document.getElementById('pause-btn');
-const clearBtn = document.getElementById('clear-btn');
 const navFooter = document.getElementById('nav-footer');
 
 // ---- Speed slider ----
@@ -1175,91 +1197,103 @@ textInput.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key === 'Enter') generateBtn.click();
 });
 
-// ---- WebSocket logs ----
-function connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${proto}//${location.host}/ws/logs`);
+// ---- Logs (MongoDB-backed with live WebSocket) ----
+let logPage = 0;
+const logLimit = 50;
+let liveMode = true;
 
-  ws.onopen = () => {
-    wsDot.classList.add('connected');
-    wsLabel.textContent = 'connected';
-    addLog({ level: 'INFO', message: 'Connected to log stream' });
-  };
-
-  ws.onmessage = (event) => {
-    if (paused) return;
-    try {
-      addLog(JSON.parse(event.data));
-    } catch {
-      addLog({ level: 'INFO', message: event.data });
-    }
-    // Badge if not on logs page
-    const logsActive = document.querySelector('.nav-item[data-page="logs"]').classList.contains('active');
-    if (!logsActive) {
-      logCount++;
-      const badge = document.getElementById('log-badge');
-      badge.textContent = logCount > 99 ? '99+' : logCount;
-      badge.style.display = 'inline';
-    }
-  };
-
-  ws.onclose = () => {
-    wsDot.classList.remove('connected');
-    wsLabel.textContent = 'disconnected';
-    addLog({ level: 'WARNING', message: 'Disconnected, reconnecting...' });
-    setTimeout(connectWS, 3000);
-  };
-
-  ws.onerror = () => ws.close();
+// Load event types for filter dropdown
+async function loadLogEventTypes() {
+  try {
+    const res = await fetch('/logs/events');
+    if (!res.ok) return;
+    const data = await res.json();
+    const sel = document.getElementById('log-event-filter');
+    sel.innerHTML = '<option value="">All events</option>';
+    data.events.forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = e;
+      opt.textContent = e;
+      sel.appendChild(opt);
+    });
+  } catch {}
 }
-connectWS();
+loadLogEventTypes();
 
-function addLog(entry) {
-  const div = document.createElement('div');
-  const level = entry.level || 'INFO';
-  const ts = entry.time || new Date().toLocaleTimeString();
-  let msg = entry.message;
-  let rawData = msg; // keep original for expand view
-  let eventType = '';
-  let method = '';
-  let summaryText = '';
-
-  // Parse structured message
-  if (typeof msg === 'object') {
-    eventType = msg.event || '';
-    method = msg.method || '';
-    // Build a readable one-line summary
-    const parts = [];
-    if (msg.event) parts.push(msg.event);
-    if (msg.text) parts.push(`"${msg.text}"`);
-    if (msg.voice) parts.push(`voice=${msg.voice}`);
-    if (msg.speed && msg.speed !== 1) parts.push(`speed=${msg.speed}`);
-    if (msg.chars) parts.push(`${msg.chars} chars`);
-    if (msg.audio_duration) parts.push(`audio=${msg.audio_duration}`);
-    if (msg.synth_time) parts.push(`synth=${msg.synth_time}`);
-    if (msg.size) parts.push(`size=${msg.size}`);
-    if (msg.segment) parts.push(`segment #${msg.segment}`);
-    if (msg.segment_duration) parts.push(`dur=${msg.segment_duration}`);
-    if (msg.path) parts.push(msg.path);
-    if (msg.status) parts.push(`→ ${msg.status}`);
-    if (msg.duration_ms) parts.push(`${msg.duration_ms}ms`);
-    if (msg.segments) parts.push(`${msg.segments} segments`);
-    if (msg.error) parts.push(`error: ${msg.error}`);
-    summaryText = parts.join('  ');
-  } else {
-    summaryText = String(msg);
+async function loadLogs(page = 0) {
+  logPage = page;
+  const search = document.getElementById('log-search').value.trim();
+  const event = document.getElementById('log-event-filter').value;
+  const requestId = document.getElementById('log-request-filter').value.trim();
+  const skip = page * logLimit;
+  const params = new URLSearchParams({ skip, limit: logLimit });
+  if (search) params.set('search', search);
+  if (event) params.set('event', event);
+  if (requestId) params.set('request_id', requestId);
+  try {
+    const res = await fetch('/logs?' + params);
+    if (!res.ok) throw new Error('Failed');
+    const data = await res.json();
+    logFeed.innerHTML = '';
+    if (data.logs.length === 0) {
+      logFeed.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:48px;">No logs found</div>';
+      document.getElementById('log-pagination').innerHTML = '';
+      return;
+    }
+    // MongoDB returns newest first; render in that order
+    data.logs.forEach(doc => renderLogEntry(doc));
+    // Pagination
+    const totalPages = Math.ceil(data.total / logLimit);
+    const pag = document.getElementById('log-pagination');
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    let html = '';
+    if (page > 0) html += `<button onclick="loadLogs(${page - 1})">Newer</button>`;
+    html += `<span>Page ${page + 1} / ${totalPages} (${data.total} total)</span>`;
+    if (page < totalPages - 1) html += `<button onclick="loadLogs(${page + 1})">Older</button>`;
+    pag.innerHTML = html;
+  } catch {
+    logFeed.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:48px;">Failed to load logs. MongoDB may be unavailable.</div>';
   }
+}
 
-  // CSS classes
+function renderLogEntry(doc) {
+  // doc is a MongoDB log document: {request_id, event, level, data, created_at}
+  const div = document.createElement('div');
+  const level = doc.level || 'INFO';
+  const event = doc.event || '';
+  const data = doc.data || {};
+  const ts = doc.created_at ? new Date(doc.created_at).toLocaleTimeString() : '—';
+  const reqId = doc.request_id || '';
+
+  // Build summary from data fields
+  const parts = [];
+  if (event) parts.push(event);
+  if (reqId) parts.push(`[${reqId}]`);
+  if (data.text) parts.push(`"${data.text}"`);
+  if (data.voice) parts.push(`voice=${data.voice}`);
+  if (data.speed && data.speed !== 1) parts.push(`speed=${data.speed}`);
+  if (data.chars) parts.push(`${data.chars} chars`);
+  if (data.audio_duration != null) parts.push(`audio=${typeof data.audio_duration === 'number' ? data.audio_duration.toFixed(2) + 's' : data.audio_duration}`);
+  if (data.synth_time_ms != null) parts.push(`synth=${data.synth_time_ms.toFixed(0)}ms`);
+  if (data.method) parts.push(data.method);
+  if (data.path) parts.push(data.path);
+  if (data.status) parts.push(`→ ${data.status}`);
+  if (data.duration_ms) parts.push(`${data.duration_ms}ms`);
+  if (data.segments) parts.push(`${data.segments} segments`);
+  if (data.size_bytes) parts.push(`${(data.size_bytes / 1024).toFixed(0)}KB`);
+  if (data.error) parts.push(`error: ${data.error}`);
+  const summaryText = parts.join('  ');
+
   div.className = `log-entry ${level}`;
-  if (eventType) div.classList.add('evt-' + eventType);
+  if (event) div.classList.add('evt-' + event);
 
-  // Build tags
   let tags = '';
-  if (eventType) tags += `<span class="tag ${escapeHtml(eventType)}">${escapeHtml(eventType)}</span>`;
-  if (method) tags += `<span class="tag ${escapeHtml(method)}">${escapeHtml(method)}</span>`;
+  if (event) tags += `<span class="tag ${escapeHtml(event)}">${escapeHtml(event)}</span>`;
+  if (data.method) tags += `<span class="tag ${escapeHtml(data.method)}">${escapeHtml(data.method)}</span>`;
 
-  // Summary line
+  // Full detail view shows all data fields
+  const fullData = { request_id: reqId, event, ...data, created_at: doc.created_at };
+
   div.innerHTML = `
     <div class="log-summary">
       <span class="ts">${escapeHtml(ts)}</span>
@@ -1267,22 +1301,72 @@ function addLog(entry) {
       ${tags}
       <span class="msg">${escapeHtml(summaryText)}</span>
     </div>
-    <div class="log-detail">${formatDetail(rawData)}</div>
+    <div class="log-detail">${syntaxHighlight(JSON.stringify(fullData, null, 2))}</div>
   `;
-
-  // Click to expand/collapse
   div.addEventListener('click', () => div.classList.toggle('expanded'));
-
   logFeed.appendChild(div);
-  logFeed.scrollTop = logFeed.scrollHeight;
-  while (logFeed.children.length > 500) logFeed.removeChild(logFeed.firstChild);
+  return div;
+}
+
+// Render a live WebSocket message (different format than MongoDB doc)
+function renderLiveLog(entry) {
+  const level = entry.level || 'INFO';
+  const ts = entry.time || new Date().toLocaleTimeString();
+  let msg = entry.message;
+  let event = '';
+  let data = {};
+
+  if (typeof msg === 'object') {
+    event = msg.event || '';
+    data = msg;
+  }
+
+  const parts = [];
+  if (event) parts.push(event);
+  if (data.request_id) parts.push(`[${data.request_id}]`);
+  if (data.text) parts.push(`"${data.text}"`);
+  if (data.voice) parts.push(`voice=${data.voice}`);
+  if (data.speed && data.speed !== 1) parts.push(`speed=${data.speed}`);
+  if (data.chars) parts.push(`${data.chars} chars`);
+  if (data.audio_duration) parts.push(`audio=${data.audio_duration}`);
+  if (data.synth_time) parts.push(`synth=${data.synth_time}`);
+  if (data.size) parts.push(`size=${data.size}`);
+  if (data.segment) parts.push(`segment #${data.segment}`);
+  if (data.segment_duration) parts.push(`dur=${data.segment_duration}`);
+  if (data.method) parts.push(data.method);
+  if (data.path) parts.push(data.path);
+  if (data.status) parts.push(`→ ${data.status}`);
+  if (data.duration_ms) parts.push(`${data.duration_ms}ms`);
+  if (data.segments) parts.push(`${data.segments} segments`);
+  if (data.error) parts.push(`error: ${data.error}`);
+  const summaryText = typeof msg === 'string' ? msg : parts.join('  ');
+
+  let tags = '';
+  if (event) tags += `<span class="tag ${escapeHtml(event)}">${escapeHtml(event)}</span>`;
+  if (data.method) tags += `<span class="tag ${escapeHtml(data.method)}">${escapeHtml(data.method)}</span>`;
+
+  const div = document.createElement('div');
+  div.className = `log-entry ${level}`;
+  if (event) div.classList.add('evt-' + event);
+  div.innerHTML = `
+    <div class="log-summary">
+      <span class="ts">${escapeHtml(ts)}</span>
+      <span class="lvl">${level}</span>
+      ${tags}
+      <span class="msg">${escapeHtml(summaryText)}</span>
+    </div>
+    <div class="log-detail">${formatDetail(typeof msg === 'object' ? msg : entry)}</div>
+  `;
+  div.addEventListener('click', () => div.classList.toggle('expanded'));
+  // Prepend (newest first)
+  logFeed.prepend(div);
+  while (logFeed.children.length > 500) logFeed.removeChild(logFeed.lastChild);
 }
 
 function formatDetail(data) {
   if (typeof data === 'object') {
     return syntaxHighlight(JSON.stringify(data, null, 2));
   }
-  // Try parsing as JSON string
   try {
     const parsed = JSON.parse(data);
     return syntaxHighlight(JSON.stringify(parsed, null, 2));
@@ -1296,9 +1380,7 @@ function syntaxHighlight(json) {
     /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
     (match) => {
       if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          return `<span class="json-key">${match}</span>`;
-        }
+        if (/:$/.test(match)) return `<span class="json-key">${match}</span>`;
         return `<span class="json-str">${match}</span>`;
       }
       if (/true|false/.test(match)) return `<span class="json-bool">${match}</span>`;
@@ -1312,17 +1394,84 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// WebSocket for live mode
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws/logs`);
+  ws.onopen = () => {
+    wsDot.classList.add('connected');
+    wsLabel.textContent = 'live';
+  };
+  ws.onmessage = (event) => {
+    // Badge if not on logs page
+    const logsActive = document.querySelector('.nav-item[data-page="logs"]').classList.contains('active');
+    if (!logsActive) {
+      logCount++;
+      const badge = document.getElementById('log-badge');
+      badge.textContent = logCount > 99 ? '99+' : logCount;
+      badge.style.display = 'inline';
+    }
+    // Only render in live mode
+    if (!liveMode) return;
+    try {
+      renderLiveLog(JSON.parse(event.data));
+    } catch {
+      renderLiveLog({ level: 'INFO', message: event.data });
+    }
+  };
+  ws.onclose = () => {
+    wsDot.classList.remove('connected');
+    wsLabel.textContent = 'disconnected';
+    setTimeout(connectWS, 3000);
+  };
+  ws.onerror = () => ws.close();
+}
+connectWS();
+
+// Live mode toggle
+document.getElementById('log-live-toggle').addEventListener('change', function() {
+  liveMode = this.checked;
+  if (liveMode) {
+    document.getElementById('log-pagination').innerHTML = '';
+    logFeed.innerHTML = '';
+    wsLabel.textContent = 'live';
+  } else {
+    loadLogs(0);
+    wsLabel.textContent = 'paused';
+  }
+});
+
+// Search/filter
+document.getElementById('log-search-btn').addEventListener('click', () => {
+  liveMode = false;
+  document.getElementById('log-live-toggle').checked = false;
+  wsLabel.textContent = 'paused';
+  loadLogs(0);
+});
+document.getElementById('log-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('log-search-btn').click();
+});
+document.getElementById('log-event-filter').addEventListener('change', () => {
+  liveMode = false;
+  document.getElementById('log-live-toggle').checked = false;
+  wsLabel.textContent = 'paused';
+  loadLogs(0);
+});
+
 document.getElementById('expand-all-btn').addEventListener('click', () => {
   logFeed.querySelectorAll('.log-entry').forEach(e => e.classList.add('expanded'));
 });
 document.getElementById('collapse-all-btn').addEventListener('click', () => {
   logFeed.querySelectorAll('.log-entry').forEach(e => e.classList.remove('expanded'));
 });
-pauseBtn.addEventListener('click', () => {
-  paused = !paused;
-  pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+
+// Load logs from MongoDB when navigating to page (if not in live mode)
+document.querySelector('.nav-item[data-page="logs"]').addEventListener('click', () => {
+  logCount = 0;
+  document.getElementById('log-badge').style.display = 'none';
+  if (!liveMode) loadLogs(logPage);
+  loadLogEventTypes();
 });
-clearBtn.addEventListener('click', () => { logFeed.innerHTML = ''; });
 
 // ---- Library (Audio Cache) ----
 let libraryPage = 0;
