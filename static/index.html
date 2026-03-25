@@ -776,6 +776,10 @@ audio { width: 100%; margin-bottom: 8px; }
       <textarea id="text-input" placeholder="Type or paste text to synthesize... (Ctrl+Enter to generate)">Hello! This is a test of the Kokoro text to speech system.</textarea>
       <div class="controls">
         <div>
+          <label for="lang-select">Language</label>
+          <select id="lang-select"></select>
+        </div>
+        <div>
           <label for="voice-select">Voice</label>
           <select id="voice-select"></select>
         </div>
@@ -992,6 +996,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
 
 // ---- Elements ----
 const textInput = document.getElementById('text-input');
+const langSelect = document.getElementById('lang-select');
 const voiceSelect = document.getElementById('voice-select');
 const speedSlider = document.getElementById('speed-slider');
 const speedVal = document.getElementById('speed-val');
@@ -1036,6 +1041,25 @@ async function loadVoices() {
   }
 }
 loadVoices();
+
+// ---- Load languages ----
+async function loadLanguages() {
+  try {
+    const res = await fetch('/languages');
+    const data = await res.json();
+    langSelect.innerHTML = '';
+    data.languages.forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.code;
+      opt.textContent = l.name;
+      if (l.code === 'a') opt.selected = true;
+      langSelect.appendChild(opt);
+    });
+  } catch (e) {
+    langSelect.innerHTML = '<option value="a">American English</option>';
+  }
+}
+loadLanguages();
 
 // ---- Stats polling (replaces health check) ----
 function fmtBytes(b) {
@@ -1158,12 +1182,14 @@ generateBtn.addEventListener('click', async () => {
         input: text,
         voice: voiceSelect.value,
         speed: parseFloat(speedSlider.value),
+        lang_code: langSelect.value,
       }),
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      alert('Error: ' + (err.detail || res.statusText));
+      let msg = res.statusText;
+      try { const err = await res.json(); msg = err.detail || msg; } catch {}
+      alert('Error: ' + msg);
       return;
     }
 
@@ -1580,8 +1606,9 @@ document.getElementById('batch-submit-btn').addEventListener('click', async () =
       body: JSON.stringify({ items }),
     });
     if (!res.ok) {
-      const err = await res.json();
-      alert('Error: ' + (err.detail || res.statusText));
+      let msg = res.statusText;
+      try { const err = await res.json(); msg = err.detail || msg; } catch {}
+      alert('Error: ' + msg);
       return;
     }
     const data = await res.json();

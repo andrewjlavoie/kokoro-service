@@ -106,18 +106,18 @@ async def enforce_ttl():
     return removed
 
 
-def compute_cache_key(text: str, voice: str, speed: float) -> str:
-    """SHA-256 hash of normalized (text, voice, speed) tuple."""
-    canonical = f"{text}|{voice}|{speed:.1f}"
+def compute_cache_key(text: str, voice: str, speed: float, lang_code: str = "a") -> str:
+    """SHA-256 hash of normalized (text, voice, speed, lang_code) tuple."""
+    canonical = f"{text}|{voice}|{speed:.1f}|{lang_code}"
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-async def lookup(text: str, voice: str, speed: float):
+async def lookup(text: str, voice: str, speed: float, lang_code: str = "a"):
     """Check cache for matching audio. Returns (cache_doc, file_path) or (None, None)."""
     from db import cache, get_db
     if get_db() is None:
         return None, None
-    key = compute_cache_key(text, voice, speed)
+    key = compute_cache_key(text, voice, speed, lang_code)
     doc = await cache().find_one({"cache_key": key})
     if doc:
         full_path = CACHE_DIR / doc["file_path"]
@@ -133,14 +133,14 @@ async def lookup(text: str, voice: str, speed: float):
     return None, None
 
 
-async def store(text: str, voice: str, speed: float, wav_bytes: bytes, duration: float, sample_rate: int):
+async def store(text: str, voice: str, speed: float, wav_bytes: bytes, duration: float, sample_rate: int, lang_code: str = "a"):
     """Store audio in cache. Returns the cache document or None if skipped/failed."""
     from db import cache, get_db
     if get_db() is None:
         return None
     if not await should_cache(text, wav_bytes=wav_bytes, duration=duration):
         return None
-    key = compute_cache_key(text, voice, speed)
+    key = compute_cache_key(text, voice, speed, lang_code)
     shard = key[:2]
     rel_path = f"{shard}/{key}.wav"
     full_path = CACHE_DIR / rel_path
@@ -152,6 +152,7 @@ async def store(text: str, voice: str, speed: float, wav_bytes: bytes, duration:
         "text": text,
         "voice": voice,
         "speed": speed,
+        "lang_code": lang_code,
         "audio_duration_sec": duration,
         "sample_rate": sample_rate,
         "file_path": rel_path,

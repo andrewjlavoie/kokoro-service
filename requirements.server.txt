@@ -5,3 +5,5 @@ fastapi
 uvicorn[standard]
 websockets
 motor
+misaki[ja]
+misaki[zh]

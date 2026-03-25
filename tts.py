@@ -24,7 +24,6 @@ LANGUAGE_CODES = {
     'h': 'Hindi',
     'i': 'Italian',
     'p': 'Brazilian Portuguese',
-    'k': 'Korean',
 }
 
 # Popular voices (see VOICES.md for full list)

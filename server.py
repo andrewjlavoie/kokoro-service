@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from kokoro_sdk import SAMPLE_RATE, KokoroTTS
+from kokoro_sdk import LANGUAGE_CODES, SAMPLE_RATE, KokoroTTS
 
 # ---------------------------------------------------------------------------
 # Structured JSON logging + WebSocket broadcast
@@ -193,7 +193,7 @@ app = FastAPI(title="Kokoro TTS", version="0.2.0", lifespan=lifespan)
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     # Skip logging for static files, websocket, health checks, and voice list
-    skip = request.url.path.startswith("/static") or request.url.path.startswith("/settings") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/", "/generations", "/logs", "/logs/events")
+    skip = request.url.path.startswith("/static") or request.url.path.startswith("/settings") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/languages", "/", "/generations", "/logs", "/logs/events")
     request_id = str(uuid.uuid4())[:8]
     request.state.request_id = request_id
     t0 = time.monotonic()
@@ -224,12 +224,14 @@ class SpeechRequest(BaseModel):
     input: str = Field(..., min_length=1, max_length=10000)
     voice: str = "af_heart"
     speed: float = 1.0
+    lang_code: str = "a"
 
 
 class BatchItem(BaseModel):
     input: str = Field(..., min_length=1, max_length=10000)
     voice: str = "af_heart"
     speed: float = 1.0
+    lang_code: str = "a"
 
 
 class BatchRequest(BaseModel):
@@ -347,6 +349,16 @@ async def voices():
     }
 
 
+@app.get("/languages")
+async def languages():
+    return {
+        "languages": [
+            {"code": code, "name": name}
+            for code, name in LANGUAGE_CODES.items()
+        ]
+    }
+
+
 @app.post("/v1/audio/speech")
 async def speech_stream(req: SpeechRequest):
     """OpenAI-compatible TTS endpoint with streaming audio."""
@@ -357,12 +369,12 @@ async def speech_stream(req: SpeechRequest):
 
     # Check cache — return full WAV immediately on hit
     import cache as audio_cache
-    cache_doc, cache_path = await audio_cache.lookup(req.input, req.voice, req.speed)
+    cache_doc, cache_path = await audio_cache.lookup(req.input, req.voice, req.speed, req.lang_code)
     if cache_doc and cache_path:
         _log_json(request_id, "cache_hit", text=req.input, voice=req.voice, cache_key=cache_doc["cache_key"][:12])
-        asyncio.create_task(_persist_log(request_id, "cache_hit", text=req.input, voice=req.voice, speed=req.speed))
+        asyncio.create_task(_persist_log(request_id, "cache_hit", text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code))
         asyncio.create_task(_persist_generation(
-            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code,
             audio_duration_sec=cache_doc["audio_duration_sec"], synth_time_ms=0,
             sample_rate=cache_doc["sample_rate"], audio_size_bytes=cache_doc["file_size_bytes"],
             endpoint="/v1/audio/speech", cache_hit=True, cache_id=str(cache_doc["_id"]),
@@ -376,8 +388,14 @@ async def speech_stream(req: SpeechRequest):
             "X-Cache": "hit",
         })
 
-    _log_json(request_id, "stream_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input))
-    asyncio.create_task(_persist_log(request_id, "stream_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input)))
+    # Validate language pipeline before streaming
+    try:
+        tts._ensure_pipeline(req.lang_code)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    _log_json(request_id, "stream_start", text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code, chars=len(req.input))
+    asyncio.create_task(_persist_log(request_id, "stream_start", text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code, chars=len(req.input)))
 
     # Collect all PCM for caching after stream completes
     _pcm_chunks = []
@@ -387,7 +405,7 @@ async def speech_stream(req: SpeechRequest):
         total_samples = 0
         segment_count = 0
         yield wav_header(SAMPLE_RATE)
-        for segment in tts.synthesize_stream(req.input, voice=req.voice, speed=req.speed):
+        for segment in tts.synthesize_stream(req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code):
             pcm = audio_to_pcm16(segment)
             _pcm_chunks.append(pcm)
             total_samples += len(segment)
@@ -400,7 +418,7 @@ async def speech_stream(req: SpeechRequest):
         _log_json(request_id, "stream_complete", audio_duration=f"{duration:.2f}s", synth_time=f"{elapsed_ms:.0f}ms", segments=segment_count)
         asyncio.create_task(_persist_log(request_id, "stream_complete", audio_duration=duration, synth_time_ms=elapsed_ms, segments=segment_count))
         asyncio.create_task(_persist_generation(
-            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code,
             audio_duration_sec=duration, synth_time_ms=elapsed_ms, sample_rate=SAMPLE_RATE,
             audio_size_bytes=total_samples * 2, endpoint="/v1/audio/speech",
         ))
@@ -408,7 +426,7 @@ async def speech_stream(req: SpeechRequest):
         all_pcm = b"".join(_pcm_chunks)
         pcm_size = len(all_pcm)
         full_wav = wav_header(SAMPLE_RATE, data_size=pcm_size) + all_pcm
-        asyncio.create_task(audio_cache.store(req.input, req.voice, req.speed, full_wav, duration, SAMPLE_RATE))
+        asyncio.create_task(audio_cache.store(req.input, req.voice, req.speed, full_wav, duration, SAMPLE_RATE, req.lang_code))
         global _req_count, _total_audio_sec, _total_synth_ms
         _req_count += 1
         _total_audio_sec += duration
@@ -427,12 +445,12 @@ async def synthesize(req: SpeechRequest):
 
     # Check cache first
     import cache as audio_cache
-    cache_doc, cache_path = await audio_cache.lookup(req.input, req.voice, req.speed)
+    cache_doc, cache_path = await audio_cache.lookup(req.input, req.voice, req.speed, req.lang_code)
     if cache_doc and cache_path:
         _log_json(request_id, "cache_hit", text=req.input, voice=req.voice, cache_key=cache_doc["cache_key"][:12])
-        asyncio.create_task(_persist_log(request_id, "cache_hit", text=req.input, voice=req.voice, speed=req.speed))
+        asyncio.create_task(_persist_log(request_id, "cache_hit", text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code))
         asyncio.create_task(_persist_generation(
-            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+            request_id=request_id, text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code,
             audio_duration_sec=cache_doc["audio_duration_sec"], synth_time_ms=0,
             sample_rate=cache_doc["sample_rate"], audio_size_bytes=cache_doc["file_size_bytes"],
             endpoint="/synthesize", cache_hit=True, cache_id=str(cache_doc["_id"]),
@@ -453,11 +471,17 @@ async def synthesize(req: SpeechRequest):
             },
         )
 
-    _log_json(request_id, "synth_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input))
-    asyncio.create_task(_persist_log(request_id, "synth_start", text=req.input, voice=req.voice, speed=req.speed, chars=len(req.input)))
+    # Validate language pipeline
+    try:
+        tts._ensure_pipeline(req.lang_code)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    _log_json(request_id, "synth_start", text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code, chars=len(req.input))
+    asyncio.create_task(_persist_log(request_id, "synth_start", text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code, chars=len(req.input)))
 
     t0 = time.monotonic()
-    audio, sr = tts.synthesize(req.input, voice=req.voice, speed=req.speed)
+    audio, sr = tts.synthesize(req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code)
     elapsed_ms = (time.monotonic() - t0) * 1000
 
     if len(audio) == 0:
@@ -478,12 +502,12 @@ async def synthesize(req: SpeechRequest):
     wav_bytes = buf.getvalue()
 
     asyncio.create_task(_persist_generation(
-        request_id=request_id, text=req.input, voice=req.voice, speed=req.speed,
+        request_id=request_id, text=req.input, voice=req.voice, speed=req.speed, lang_code=req.lang_code,
         audio_duration_sec=duration, synth_time_ms=elapsed_ms, sample_rate=sr,
         audio_size_bytes=len(wav_bytes), endpoint="/synthesize",
     ))
     # Store in cache
-    asyncio.create_task(audio_cache.store(req.input, req.voice, req.speed, wav_bytes, duration, sr))
+    asyncio.create_task(audio_cache.store(req.input, req.voice, req.speed, wav_bytes, duration, sr, req.lang_code))
 
     return Response(
         content=wav_bytes,
@@ -640,7 +664,8 @@ async def _process_batch(job_id: str):
     for i, item in enumerate(job["items"]):
         try:
             # Check cache first
-            cache_doc, cache_path = await audio_cache.lookup(item["text"], item["voice"], item["speed"])
+            lang_code = item.get("lang_code", "a")
+            cache_doc, cache_path = await audio_cache.lookup(item["text"], item["voice"], item["speed"], lang_code)
             if cache_doc and cache_path:
                 await batch_jobs().update_one(
                     {"job_id": job_id},
@@ -657,7 +682,7 @@ async def _process_batch(job_id: str):
             # Synthesize (run in thread to avoid blocking event loop)
             import soundfile as sf_write
             t0 = time.monotonic()
-            audio, sr = await asyncio.to_thread(tts.synthesize, item["text"], voice=item["voice"], speed=item["speed"])
+            audio, sr = await asyncio.to_thread(tts.synthesize, item["text"], voice=item["voice"], speed=item["speed"], lang_code=lang_code)
             elapsed_ms = (time.monotonic() - t0) * 1000
 
             if len(audio) == 0:
@@ -674,7 +699,7 @@ async def _process_batch(job_id: str):
             wav_bytes = buf.getvalue()
 
             # Store in cache
-            stored = await audio_cache.store(item["text"], item["voice"], item["speed"], wav_bytes, duration, sr)
+            stored = await audio_cache.store(item["text"], item["voice"], item["speed"], wav_bytes, duration, sr, lang_code)
             cache_id = str(stored["_id"]) if stored else None
 
             await batch_jobs().update_one(
@@ -729,6 +754,7 @@ async def submit_batch(req: BatchRequest):
             "text": item.input,
             "voice": item.voice,
             "speed": item.speed,
+            "lang_code": item.lang_code,
             "status": "pending",
             "cache_id": None,
             "audio_duration_sec": None,

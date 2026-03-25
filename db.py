@@ -87,6 +87,7 @@ async def persist_generation(
     endpoint: str,
     cache_hit: bool = False,
     cache_id: str | None = None,
+    lang_code: str = "a",
 ):
     """Write a generation record to MongoDB."""
     if _db is None:
@@ -97,6 +98,7 @@ async def persist_generation(
             "text": text,
             "voice": voice,
             "speed": speed,
+            "lang_code": lang_code,
             "char_count": len(text),
             "audio_duration_sec": audio_duration_sec,
             "synth_time_ms": synth_time_ms,
