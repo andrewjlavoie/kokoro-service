@@ -430,6 +430,7 @@ audio { width: 100%; margin-bottom: 8px; }
 
   <!-- Dashboard Page -->
   <div class="page active" id="page-dashboard">
+    <!-- Row 1: Status + TTS stats -->
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">Status</div>
@@ -439,7 +440,7 @@ audio { width: 100%; margin-bottom: 8px; }
       <div class="stat-card">
         <div class="stat-label">Requests</div>
         <div class="stat-value" id="dash-requests">0</div>
-        <div class="stat-sub">total generations</div>
+        <div class="stat-sub" id="dash-rpm">0 req/min</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Audio Generated</div>
@@ -452,6 +453,39 @@ audio { width: 100%; margin-bottom: 8px; }
         <div class="stat-sub">per request</div>
       </div>
     </div>
+    <!-- Row 2: System resources -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">CPU</div>
+        <div class="stat-value" id="dash-cpu">—</div>
+        <div class="stat-sub" id="dash-cpu-cores"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">System Memory</div>
+        <div class="stat-value" id="dash-sys-mem">—</div>
+        <div class="stat-sub" id="dash-sys-mem-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Process Memory</div>
+        <div class="stat-value" id="dash-proc-mem">—</div>
+        <div class="stat-sub" id="dash-proc-mem-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Device</div>
+        <div class="stat-value" id="dash-device">—</div>
+        <div class="stat-sub" id="dash-device-sub"></div>
+      </div>
+    </div>
+    <!-- Row 3: Server info -->
+    <div class="card">
+      <h2>Server Info</h2>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; font-size:13px; font-family:var(--mono);">
+        <div><span style="color:var(--text-dim)">Model:</span> <span id="info-model">—</span></div>
+        <div><span style="color:var(--text-dim)">Torch:</span> <span id="info-torch">—</span></div>
+        <div><span style="color:var(--text-dim)">Python:</span> <span id="info-python">—</span></div>
+      </div>
+    </div>
+    <!-- Row 4: Recent generations -->
     <div class="card">
       <h2>Recent Generations</h2>
       <table class="history-table">
@@ -594,30 +628,12 @@ async function loadVoices() {
 }
 loadVoices();
 
-// ---- Health check ----
-async function checkHealth() {
-  try {
-    const res = await fetch('/health');
-    if (res.ok) {
-      const data = await res.json();
-      healthDot.classList.add('ready');
-      const uptime = formatUptime(data.uptime_seconds);
-      navFooter.textContent = `Kokoro-82M · ${uptime}`;
-      document.getElementById('dash-status').textContent = 'Ready';
-      document.getElementById('dash-status').style.color = 'var(--green)';
-      document.getElementById('dash-uptime').textContent = `uptime: ${uptime}`;
-    } else {
-      healthDot.classList.remove('ready');
-      navFooter.textContent = 'loading model...';
-      document.getElementById('dash-status').textContent = 'Loading';
-      document.getElementById('dash-status').style.color = 'var(--yellow)';
-    }
-  } catch {
-    healthDot.classList.remove('ready');
-    navFooter.textContent = 'disconnected';
-    document.getElementById('dash-status').textContent = 'Offline';
-    document.getElementById('dash-status').style.color = 'var(--red)';
-  }
+// ---- Stats polling (replaces health check) ----
+function fmtBytes(b) {
+  if (b >= 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
+  if (b >= 1048576) return (b / 1048576).toFixed(0) + ' MB';
+  if (b >= 1024) return (b / 1024).toFixed(0) + ' KB';
+  return b + ' B';
 }
 
 function formatUptime(seconds) {
@@ -628,17 +644,67 @@ function formatUptime(seconds) {
   return h + 'h ' + m + 'm';
 }
 
-checkHealth();
-setInterval(checkHealth, 5000);
+async function pollStats() {
+  try {
+    const res = await fetch('/stats');
+    if (!res.ok) throw new Error('not ready');
+    const s = await res.json();
 
-// ---- Dashboard stats ----
-function updateDashboard() {
-  document.getElementById('dash-requests').textContent = totalRequests;
-  document.getElementById('dash-audio').textContent = totalAudioDuration.toFixed(1) + 's';
-  document.getElementById('dash-avg').textContent = totalRequests > 0
-    ? (totalSynthMs / totalRequests / 1000).toFixed(2) + 's'
-    : '—';
+    // Status
+    healthDot.classList.toggle('ready', s.model.loaded);
+    const uptime = formatUptime(s.server.uptime_seconds);
+    navFooter.textContent = `${s.model.name} · ${uptime}`;
+    const statusEl = document.getElementById('dash-status');
+    statusEl.textContent = s.model.loaded ? 'Ready' : 'Loading';
+    statusEl.style.color = s.model.loaded ? 'var(--green)' : 'var(--yellow)';
+    document.getElementById('dash-uptime').textContent = `uptime: ${uptime}`;
+
+    // TTS stats (from server-side counters)
+    document.getElementById('dash-requests').textContent = s.tts.total_requests;
+    document.getElementById('dash-rpm').textContent = s.tts.requests_per_minute + ' req/min';
+    document.getElementById('dash-audio').textContent = s.tts.total_audio_seconds.toFixed(1) + 's';
+    document.getElementById('dash-avg').textContent = s.tts.total_requests > 0
+      ? (s.tts.avg_synth_ms / 1000).toFixed(2) + 's' : '—';
+
+    // CPU
+    document.getElementById('dash-cpu').textContent = s.system.cpu_percent + '%';
+    document.getElementById('dash-cpu-cores').textContent = s.system.cpu_count + ' cores';
+
+    // System memory
+    const memUsed = s.system.mem_used;
+    const memTotal = s.system.mem_total;
+    const memPct = memTotal > 0 ? Math.round(memUsed / memTotal * 100) : 0;
+    document.getElementById('dash-sys-mem').textContent = memPct + '%';
+    document.getElementById('dash-sys-mem-sub').textContent = `${fmtBytes(memUsed)} / ${fmtBytes(memTotal)}`;
+
+    // Process memory
+    document.getElementById('dash-proc-mem').textContent = fmtBytes(s.process.rss);
+    document.getElementById('dash-proc-mem-sub').textContent = `peak: ${fmtBytes(s.process.peak_rss)}`;
+
+    // Device
+    const dev = s.model.device.toUpperCase();
+    document.getElementById('dash-device').textContent = dev;
+    document.getElementById('dash-device-sub').textContent = dev === 'CPU' ? 'no GPU detected' : 'GPU accelerated';
+
+    // Server info
+    document.getElementById('info-model').textContent = `${s.model.name} (${s.model.params})`;
+    document.getElementById('info-torch').textContent = s.model.torch_version;
+    document.getElementById('info-python').textContent = s.server.python_version;
+
+    // Also update client-side counters to match server
+    totalRequests = s.tts.total_requests;
+    totalAudioDuration = s.tts.total_audio_seconds;
+    totalSynthMs = s.tts.total_synth_ms;
+  } catch {
+    healthDot.classList.remove('ready');
+    navFooter.textContent = 'disconnected';
+    document.getElementById('dash-status').textContent = 'Offline';
+    document.getElementById('dash-status').style.color = 'var(--red)';
+  }
 }
+
+pollStats();
+setInterval(pollStats, 3000);
 
 function addHistoryEntry(entry) {
   history.unshift(entry);
@@ -702,11 +768,7 @@ generateBtn.addEventListener('click', async () => {
     `;
     audioPlayer.play();
 
-    // Track stats
-    totalRequests++;
-    totalAudioDuration += parseFloat(duration) || 0;
-    totalSynthMs += parseFloat(elapsedSec) * 1000;
-    updateDashboard();
+    // Track history (server-side stats refresh via pollStats)
     addHistoryEntry({
       time: new Date().toLocaleTimeString(),
       voice,

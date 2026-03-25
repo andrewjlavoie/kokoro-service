@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import struct
 import sys
 import time
@@ -86,10 +87,62 @@ def _log_json(request_id: str, event: str, **kwargs):
     logger.info("{" + ",".join(parts) + "}")
 
 # ---------------------------------------------------------------------------
-# App state
+# App state + request tracking
 # ---------------------------------------------------------------------------
 _start_time: float = 0
 tts: KokoroTTS | None = None
+_req_count: int = 0
+_total_audio_sec: float = 0
+_total_synth_ms: float = 0
+_last_cpu_sample: tuple = (0.0, 0.0)  # (busy, total) from /proc/stat
+
+
+def _read_proc_meminfo() -> dict:
+    """Read system memory from /proc/meminfo."""
+    info = {}
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split()
+                if parts[0].rstrip(":") in ("MemTotal", "MemAvailable", "MemFree"):
+                    info[parts[0].rstrip(":")] = int(parts[1]) * 1024  # kB -> bytes
+    except OSError:
+        pass
+    return info
+
+
+def _read_process_mem() -> dict:
+    """Read process memory from /proc/self/status."""
+    info = {}
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith(("VmRSS", "VmPeak", "VmSize")):
+                    parts = line.split()
+                    info[parts[0].rstrip(":")] = int(parts[1]) * 1024  # kB -> bytes
+    except OSError:
+        pass
+    return info
+
+
+def _read_cpu_percent() -> float:
+    """Estimate CPU usage % since last sample from /proc/stat."""
+    global _last_cpu_sample
+    try:
+        with open("/proc/stat") as f:
+            fields = f.readline().split()[1:]  # skip 'cpu' label
+        vals = [int(v) for v in fields]
+        idle = vals[3] + (vals[4] if len(vals) > 4 else 0)  # idle + iowait
+        total = sum(vals)
+        prev_busy, prev_total = _last_cpu_sample
+        d_total = total - prev_total
+        d_busy = (total - idle) - prev_busy
+        _last_cpu_sample = (total - idle, total)
+        if d_total == 0:
+            return 0.0
+        return round(d_busy / d_total * 100, 1)
+    except OSError:
+        return 0.0
 
 
 @asynccontextmanager
@@ -115,7 +168,7 @@ app = FastAPI(title="Kokoro TTS", version="0.2.0", lifespan=lifespan)
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     # Skip logging for static files, websocket, health checks, and voice list
-    skip = request.url.path.startswith("/static") or request.url.path in ("/ws/logs", "/health", "/voices", "/")
+    skip = request.url.path.startswith("/static") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/")
     request_id = str(uuid.uuid4())[:8]
     request.state.request_id = request_id
     t0 = time.monotonic()
@@ -190,6 +243,49 @@ async def websocket_logs(ws: WebSocket):
         _ws_clients.discard(ws)
 
 
+@app.get("/stats")
+async def stats():
+    """System, process, and TTS metrics for the dashboard."""
+    import torch
+    mem = _read_proc_meminfo()
+    proc = _read_process_mem()
+    cpu = _read_cpu_percent()
+    uptime = time.time() - _start_time
+
+    return {
+        "system": {
+            "cpu_count": os.cpu_count(),
+            "cpu_percent": cpu,
+            "mem_total": mem.get("MemTotal", 0),
+            "mem_available": mem.get("MemAvailable", 0),
+            "mem_used": mem.get("MemTotal", 0) - mem.get("MemAvailable", 0),
+        },
+        "process": {
+            "rss": proc.get("VmRSS", 0),
+            "peak_rss": proc.get("VmPeak", 0),
+            "virtual": proc.get("VmSize", 0),
+        },
+        "model": {
+            "name": "Kokoro-82M",
+            "params": "82M",
+            "loaded": tts is not None and tts._pipeline is not None,
+            "device": "cuda" if torch.cuda.is_available() else "cpu",
+            "torch_version": torch.__version__,
+        },
+        "tts": {
+            "total_requests": _req_count,
+            "total_audio_seconds": round(_total_audio_sec, 2),
+            "total_synth_ms": round(_total_synth_ms, 1),
+            "avg_synth_ms": round(_total_synth_ms / _req_count, 1) if _req_count > 0 else 0,
+            "requests_per_minute": round(_req_count / (uptime / 60), 2) if uptime > 0 else 0,
+        },
+        "server": {
+            "uptime_seconds": round(uptime, 1),
+            "python_version": sys.version.split()[0],
+        },
+    }
+
+
 @app.get("/health")
 async def health():
     if tts is None or tts._pipeline is None:
@@ -236,6 +332,10 @@ async def speech_stream(req: SpeechRequest):
         elapsed_ms = (time.monotonic() - t0) * 1000
         duration = total_samples / SAMPLE_RATE
         _log_json(request_id, "stream_complete", audio_duration=f"{duration:.2f}s", synth_time=f"{elapsed_ms:.0f}ms", segments=segment_count)
+        global _req_count, _total_audio_sec, _total_synth_ms
+        _req_count += 1
+        _total_audio_sec += duration
+        _total_synth_ms += elapsed_ms
 
     return StreamingResponse(generate(), media_type="audio/wav")
 
@@ -260,6 +360,10 @@ async def synthesize(req: SpeechRequest):
 
     duration = len(audio) / sr
     _log_json(request_id, "synth_complete", audio_duration=f"{duration:.2f}s", synth_time=f"{elapsed_ms:.0f}ms", size=f"{len(audio)*2//1024}KB")
+    global _req_count, _total_audio_sec, _total_synth_ms
+    _req_count += 1
+    _total_audio_sec += duration
+    _total_synth_ms += elapsed_ms
 
     buf = io.BytesIO()
     import soundfile as sf_write
