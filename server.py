@@ -193,7 +193,7 @@ app = FastAPI(title="Kokoro TTS", version="0.2.0", lifespan=lifespan)
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     # Skip logging for static files, websocket, health checks, and voice list
-    skip = request.url.path.startswith("/static") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/", "/generations", "/logs", "/logs/events")
+    skip = request.url.path.startswith("/static") or request.url.path.startswith("/settings") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/", "/generations", "/logs", "/logs/events")
     request_id = str(uuid.uuid4())[:8]
     request.state.request_id = request_id
     t0 = time.monotonic()
@@ -583,6 +583,37 @@ async def run_ttl_cleanup():
     import cache as audio_cache
     removed = await audio_cache.enforce_ttl()
     return {"removed": removed}
+
+
+_LOG_SETTINGS_DEFAULTS = {"refresh_interval_sec": 5}
+
+
+@app.get("/settings/logs")
+async def get_log_settings():
+    """Get log UI settings."""
+    from db import get_db, settings
+    if get_db() is None:
+        return dict(_LOG_SETTINGS_DEFAULTS)
+    doc = await settings().find_one({"_id": "logs"})
+    if doc:
+        result = dict(_LOG_SETTINGS_DEFAULTS)
+        for k in _LOG_SETTINGS_DEFAULTS:
+            if k in doc:
+                result[k] = doc[k]
+        return result
+    return dict(_LOG_SETTINGS_DEFAULTS)
+
+
+@app.put("/settings/logs")
+async def update_log_settings(req: Request):
+    """Update log UI settings."""
+    from db import get_db, settings
+    if get_db() is None:
+        raise HTTPException(status_code=503, detail="MongoDB unavailable")
+    body = await req.json()
+    valid = {k: v for k, v in body.items() if k in _LOG_SETTINGS_DEFAULTS}
+    await settings().update_one({"_id": "logs"}, {"$set": valid}, upsert=True)
+    return await get_log_settings()
 
 
 # ---------------------------------------------------------------------------

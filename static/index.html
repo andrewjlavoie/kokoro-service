@@ -271,14 +271,6 @@ audio { width: 100%; margin-bottom: 8px; }
   gap: 8px;
   margin-bottom: 12px;
 }
-.logs-toolbar .ws-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--red);
-  flex-shrink: 0;
-}
-.logs-toolbar .ws-dot.connected { background: var(--green); }
-.logs-toolbar .ws-label { font-size: 13px; color: var(--text-dim); }
 .logs-toolbar .spacer { flex: 1; }
 .logs-toolbar button {
   height: 28px;
@@ -816,9 +808,8 @@ audio { width: 100%; margin-bottom: 8px; }
       <input type="text" id="log-request-filter" placeholder="Request ID" style="width:100px; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:6px 10px; border-radius:var(--radius); font-size:12px; font-family:var(--mono);">
       <button id="log-search-btn">Search</button>
       <div class="spacer"></div>
-      <div class="ws-dot" id="ws-dot"></div>
-      <span class="ws-label" id="ws-label">live</span>
-      <label class="toggle" style="margin:0 4px;" title="Live mode"><input type="checkbox" id="log-live-toggle" checked><span class="toggle-slider"></span></label>
+      <span class="ws-label" id="log-auto-label" style="font-size:11px; color:var(--text-dim);">Auto-refresh</span>
+      <label class="toggle" style="margin:0 4px;" title="Auto-refresh"><input type="checkbox" id="log-auto-toggle" checked><span class="toggle-slider"></span></label>
       <button id="expand-all-btn">Expand All</button>
       <button id="collapse-all-btn">Collapse All</button>
     </div>
@@ -964,6 +955,21 @@ audio { width: 100%; margin-bottom: 8px; }
         <button id="settings-reset-btn" style="background:var(--surface2);">Reset to Defaults</button>
         <button id="ttl-cleanup-btn" style="background:var(--surface2);">Run TTL Cleanup</button>
       </div>
+    </div>
+    <div class="card">
+      <h2>Log Settings</h2>
+      <div class="settings-form">
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Auto-refresh Interval</div>
+            <div class="setting-desc">How often the logs page polls MongoDB for new entries</div>
+          </div>
+          <div class="setting-input"><input type="number" id="set-log-refresh" min="1" value="5"><span>seconds</span></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        <button id="log-settings-save-btn">Save</button>
+      </div>
       <div id="settings-status" style="font-size:12px; color:var(--green); margin-top:8px; font-family:var(--mono); display:none;"></div>
     </div>
   </div>
@@ -995,8 +1001,6 @@ const audioPlayer = document.getElementById('audio-player');
 const metaDiv = document.getElementById('meta');
 const logFeed = document.getElementById('log-feed');
 const healthDot = document.getElementById('health-dot');
-const wsDot = document.getElementById('ws-dot');
-const wsLabel = document.getElementById('ws-label');
 const navFooter = document.getElementById('nav-footer');
 
 // ---- Speed slider ----
@@ -1197,10 +1201,12 @@ textInput.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key === 'Enter') generateBtn.click();
 });
 
-// ---- Logs (MongoDB-backed with live WebSocket) ----
+// ---- Logs (MongoDB-backed with auto-refresh) ----
 let logPage = 0;
 const logLimit = 50;
-let liveMode = true;
+let logAutoRefresh = true;
+let logRefreshInterval = null;
+let logRefreshMs = 5000; // default 5s, changeable in settings
 
 // Load event types for filter dropdown
 async function loadLogEventTypes() {
@@ -1209,6 +1215,7 @@ async function loadLogEventTypes() {
     if (!res.ok) return;
     const data = await res.json();
     const sel = document.getElementById('log-event-filter');
+    const current = sel.value;
     sel.innerHTML = '<option value="">All events</option>';
     data.events.forEach(e => {
       const opt = document.createElement('option');
@@ -1216,9 +1223,9 @@ async function loadLogEventTypes() {
       opt.textContent = e;
       sel.appendChild(opt);
     });
+    sel.value = current;
   } catch {}
 }
-loadLogEventTypes();
 
 async function loadLogs(page = 0) {
   logPage = page;
@@ -1234,14 +1241,27 @@ async function loadLogs(page = 0) {
     const res = await fetch('/logs?' + params);
     if (!res.ok) throw new Error('Failed');
     const data = await res.json();
+    // Preserve expanded state by tracking which entries are expanded
+    const expandedSet = new Set();
+    logFeed.querySelectorAll('.log-entry.expanded').forEach(el => {
+      const ts = el.querySelector('.ts');
+      const msg = el.querySelector('.msg');
+      if (ts && msg) expandedSet.add(ts.textContent + '|' + msg.textContent);
+    });
     logFeed.innerHTML = '';
     if (data.logs.length === 0) {
       logFeed.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:48px;">No logs found</div>';
       document.getElementById('log-pagination').innerHTML = '';
       return;
     }
-    // MongoDB returns newest first; render in that order
-    data.logs.forEach(doc => renderLogEntry(doc));
+    data.logs.forEach(doc => {
+      const div = renderLogEntry(doc);
+      const ts = div.querySelector('.ts');
+      const msg = div.querySelector('.msg');
+      if (ts && msg && expandedSet.has(ts.textContent + '|' + msg.textContent)) {
+        div.classList.add('expanded');
+      }
+    });
     // Pagination
     const totalPages = Math.ceil(data.total / logLimit);
     const pag = document.getElementById('log-pagination');
@@ -1257,7 +1277,6 @@ async function loadLogs(page = 0) {
 }
 
 function renderLogEntry(doc) {
-  // doc is a MongoDB log document: {request_id, event, level, data, created_at}
   const div = document.createElement('div');
   const level = doc.level || 'INFO';
   const event = doc.event || '';
@@ -1265,7 +1284,6 @@ function renderLogEntry(doc) {
   const ts = doc.created_at ? new Date(doc.created_at).toLocaleTimeString() : '—';
   const reqId = doc.request_id || '';
 
-  // Build summary from data fields
   const parts = [];
   if (event) parts.push(event);
   if (reqId) parts.push(`[${reqId}]`);
@@ -1291,9 +1309,7 @@ function renderLogEntry(doc) {
   if (event) tags += `<span class="tag ${escapeHtml(event)}">${escapeHtml(event)}</span>`;
   if (data.method) tags += `<span class="tag ${escapeHtml(data.method)}">${escapeHtml(data.method)}</span>`;
 
-  // Full detail view shows all data fields
   const fullData = { request_id: reqId, event, ...data, created_at: doc.created_at };
-
   div.innerHTML = `
     <div class="log-summary">
       <span class="ts">${escapeHtml(ts)}</span>
@@ -1306,73 +1322,6 @@ function renderLogEntry(doc) {
   div.addEventListener('click', () => div.classList.toggle('expanded'));
   logFeed.appendChild(div);
   return div;
-}
-
-// Render a live WebSocket message (different format than MongoDB doc)
-function renderLiveLog(entry) {
-  const level = entry.level || 'INFO';
-  const ts = entry.time || new Date().toLocaleTimeString();
-  let msg = entry.message;
-  let event = '';
-  let data = {};
-
-  if (typeof msg === 'object') {
-    event = msg.event || '';
-    data = msg;
-  }
-
-  const parts = [];
-  if (event) parts.push(event);
-  if (data.request_id) parts.push(`[${data.request_id}]`);
-  if (data.text) parts.push(`"${data.text}"`);
-  if (data.voice) parts.push(`voice=${data.voice}`);
-  if (data.speed && data.speed !== 1) parts.push(`speed=${data.speed}`);
-  if (data.chars) parts.push(`${data.chars} chars`);
-  if (data.audio_duration) parts.push(`audio=${data.audio_duration}`);
-  if (data.synth_time) parts.push(`synth=${data.synth_time}`);
-  if (data.size) parts.push(`size=${data.size}`);
-  if (data.segment) parts.push(`segment #${data.segment}`);
-  if (data.segment_duration) parts.push(`dur=${data.segment_duration}`);
-  if (data.method) parts.push(data.method);
-  if (data.path) parts.push(data.path);
-  if (data.status) parts.push(`→ ${data.status}`);
-  if (data.duration_ms) parts.push(`${data.duration_ms}ms`);
-  if (data.segments) parts.push(`${data.segments} segments`);
-  if (data.error) parts.push(`error: ${data.error}`);
-  const summaryText = typeof msg === 'string' ? msg : parts.join('  ');
-
-  let tags = '';
-  if (event) tags += `<span class="tag ${escapeHtml(event)}">${escapeHtml(event)}</span>`;
-  if (data.method) tags += `<span class="tag ${escapeHtml(data.method)}">${escapeHtml(data.method)}</span>`;
-
-  const div = document.createElement('div');
-  div.className = `log-entry ${level}`;
-  if (event) div.classList.add('evt-' + event);
-  div.innerHTML = `
-    <div class="log-summary">
-      <span class="ts">${escapeHtml(ts)}</span>
-      <span class="lvl">${level}</span>
-      ${tags}
-      <span class="msg">${escapeHtml(summaryText)}</span>
-    </div>
-    <div class="log-detail">${formatDetail(typeof msg === 'object' ? msg : entry)}</div>
-  `;
-  div.addEventListener('click', () => div.classList.toggle('expanded'));
-  // Prepend (newest first)
-  logFeed.prepend(div);
-  while (logFeed.children.length > 500) logFeed.removeChild(logFeed.lastChild);
-}
-
-function formatDetail(data) {
-  if (typeof data === 'object') {
-    return syntaxHighlight(JSON.stringify(data, null, 2));
-  }
-  try {
-    const parsed = JSON.parse(data);
-    return syntaxHighlight(JSON.stringify(parsed, null, 2));
-  } catch {
-    return escapeHtml(String(data));
-  }
 }
 
 function syntaxHighlight(json) {
@@ -1394,69 +1343,37 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// WebSocket for live mode
-function connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${proto}//${location.host}/ws/logs`);
-  ws.onopen = () => {
-    wsDot.classList.add('connected');
-    wsLabel.textContent = 'live';
-  };
-  ws.onmessage = (event) => {
-    // Badge if not on logs page
-    const logsActive = document.querySelector('.nav-item[data-page="logs"]').classList.contains('active');
-    if (!logsActive) {
-      logCount++;
-      const badge = document.getElementById('log-badge');
-      badge.textContent = logCount > 99 ? '99+' : logCount;
-      badge.style.display = 'inline';
-    }
-    // Only render in live mode
-    if (!liveMode) return;
-    try {
-      renderLiveLog(JSON.parse(event.data));
-    } catch {
-      renderLiveLog({ level: 'INFO', message: event.data });
-    }
-  };
-  ws.onclose = () => {
-    wsDot.classList.remove('connected');
-    wsLabel.textContent = 'disconnected';
-    setTimeout(connectWS, 3000);
-  };
-  ws.onerror = () => ws.close();
-}
-connectWS();
-
-// Live mode toggle
-document.getElementById('log-live-toggle').addEventListener('change', function() {
-  liveMode = this.checked;
-  if (liveMode) {
-    document.getElementById('log-pagination').innerHTML = '';
-    logFeed.innerHTML = '';
-    wsLabel.textContent = 'live';
-  } else {
-    loadLogs(0);
-    wsLabel.textContent = 'paused';
+// Auto-refresh management
+function startLogAutoRefresh() {
+  stopLogAutoRefresh();
+  if (logAutoRefresh) {
+    logRefreshInterval = setInterval(() => {
+      // Only auto-refresh on page 0 (latest)
+      if (logPage === 0) loadLogs(0);
+    }, logRefreshMs);
   }
+}
+
+function stopLogAutoRefresh() {
+  if (logRefreshInterval) {
+    clearInterval(logRefreshInterval);
+    logRefreshInterval = null;
+  }
+}
+
+document.getElementById('log-auto-toggle').addEventListener('change', function() {
+  logAutoRefresh = this.checked;
+  document.getElementById('log-auto-label').textContent = logAutoRefresh ? 'Auto-refresh' : 'Paused';
+  if (logAutoRefresh) startLogAutoRefresh();
+  else stopLogAutoRefresh();
 });
 
 // Search/filter
-document.getElementById('log-search-btn').addEventListener('click', () => {
-  liveMode = false;
-  document.getElementById('log-live-toggle').checked = false;
-  wsLabel.textContent = 'paused';
-  loadLogs(0);
-});
+document.getElementById('log-search-btn').addEventListener('click', () => loadLogs(0));
 document.getElementById('log-search').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('log-search-btn').click();
+  if (e.key === 'Enter') loadLogs(0);
 });
-document.getElementById('log-event-filter').addEventListener('change', () => {
-  liveMode = false;
-  document.getElementById('log-live-toggle').checked = false;
-  wsLabel.textContent = 'paused';
-  loadLogs(0);
-});
+document.getElementById('log-event-filter').addEventListener('change', () => loadLogs(0));
 
 document.getElementById('expand-all-btn').addEventListener('click', () => {
   logFeed.querySelectorAll('.log-entry').forEach(e => e.classList.add('expanded'));
@@ -1465,11 +1382,33 @@ document.getElementById('collapse-all-btn').addEventListener('click', () => {
   logFeed.querySelectorAll('.log-entry').forEach(e => e.classList.remove('expanded'));
 });
 
-// Load logs from MongoDB when navigating to page (if not in live mode)
+// WebSocket — only for badge counting (no rendering)
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws/logs`);
+  ws.onmessage = () => {
+    const logsActive = document.querySelector('.nav-item[data-page="logs"]').classList.contains('active');
+    if (!logsActive) {
+      logCount++;
+      const badge = document.getElementById('log-badge');
+      badge.textContent = logCount > 99 ? '99+' : logCount;
+      badge.style.display = 'inline';
+    }
+  };
+  ws.onclose = () => setTimeout(connectWS, 3000);
+  ws.onerror = () => ws.close();
+}
+connectWS();
+
+// Initial load + start auto-refresh
+loadLogs(0);
+loadLogEventTypes();
+startLogAutoRefresh();
+
+// Refresh event types when navigating to logs
 document.querySelector('.nav-item[data-page="logs"]').addEventListener('click', () => {
   logCount = 0;
   document.getElementById('log-badge').style.display = 'none';
-  if (!liveMode) loadLogs(logPage);
   loadLogEventTypes();
 });
 
@@ -1857,8 +1796,43 @@ document.getElementById('ttl-cleanup-btn').addEventListener('click', async () =>
   }
 });
 
+// Log settings — stored in same MongoDB settings collection under "logs" key
+async function loadLogSettings() {
+  try {
+    const res = await fetch('/settings/logs');
+    if (!res.ok) return;
+    const s = await res.json();
+    if (s.refresh_interval_sec != null) {
+      document.getElementById('set-log-refresh').value = s.refresh_interval_sec;
+      logRefreshMs = s.refresh_interval_sec * 1000;
+      if (logAutoRefresh) startLogAutoRefresh();
+    }
+  } catch {}
+}
+loadLogSettings();
+
+document.getElementById('log-settings-save-btn').addEventListener('click', async () => {
+  const sec = parseInt(document.getElementById('set-log-refresh').value) || 5;
+  try {
+    const res = await fetch('/settings/logs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_interval_sec: sec }),
+    });
+    if (!res.ok) throw new Error('Failed');
+    logRefreshMs = sec * 1000;
+    if (logAutoRefresh) startLogAutoRefresh();
+    showSettingsStatus('Log settings saved');
+  } catch {
+    showSettingsStatus('Failed to save log settings', true);
+  }
+});
+
 // Load settings when navigating to the page
-document.querySelector('.nav-item[data-page="settings"]').addEventListener('click', loadSettings);
+document.querySelector('.nav-item[data-page="settings"]').addEventListener('click', () => {
+  loadSettings();
+  loadLogSettings();
+});
 </script>
 </body>
 </html>
