@@ -173,8 +173,15 @@ async def store(text: str, voice: str, speed: float, wav_bytes: bytes, duration:
         return existing
 
 
-async def list_entries(search: str = "", tag: str = "", skip: int = 0, limit: int = 50):
-    """List cache entries with optional text search and tag filter."""
+SORT_FIELDS = {"created_at", "hit_count", "file_size_bytes", "audio_duration_sec", "voice", "last_accessed_at"}
+
+
+async def list_entries(
+    search: str = "", tag: str = "", voice: str = "", lang_code: str = "",
+    sort_by: str = "created_at", sort_order: int = -1,
+    skip: int = 0, limit: int = 50,
+):
+    """List cache entries with optional text search, tag/voice/lang filter, and sorting."""
     from db import cache, get_db
     if get_db() is None:
         return [], 0
@@ -183,7 +190,13 @@ async def list_entries(search: str = "", tag: str = "", skip: int = 0, limit: in
         query["$text"] = {"$search": search}
     if tag:
         query["tags"] = tag
-    cursor = cache().find(query).sort("created_at", -1).skip(skip).limit(limit)
+    if voice:
+        query["voice"] = voice
+    if lang_code:
+        query["lang_code"] = lang_code
+    if sort_by not in SORT_FIELDS:
+        sort_by = "created_at"
+    cursor = cache().find(query).sort(sort_by, sort_order).skip(skip).limit(limit)
     docs = await cursor.to_list(length=limit)
     total = await cache().count_documents(query)
     # Convert ObjectId and datetime for JSON

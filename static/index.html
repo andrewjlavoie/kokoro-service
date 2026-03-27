@@ -403,6 +403,16 @@ audio { width: 100%; margin-bottom: 8px; }
   gap: 8px;
   margin-bottom: 12px;
   align-items: center;
+  flex-wrap: wrap;
+}
+.library-toolbar input, .library-toolbar select {
+  height: 36px;
+  background: var(--surface);
+  border: 1px solid #ffffff20;
+  color: var(--text);
+  padding: 0 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
 }
 .library-toolbar button {
   height: 36px;
@@ -418,67 +428,77 @@ audio { width: 100%; margin-bottom: 8px; }
   margin-bottom: 12px;
   font-family: var(--mono);
 }
-.library-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
+.library-table-wrap {
+  overflow-x: auto;
 }
-.library-card {
-  background: var(--surface);
-  border-radius: var(--radius);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.library-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
 }
-.library-card .lib-text {
-  font-size: 13px;
-  line-height: 1.5;
-  max-height: 60px;
-  overflow: hidden;
-  color: var(--text);
-}
-.library-card .lib-meta {
-  display: flex;
-  gap: 12px;
+.library-table th {
+  text-align: left;
+  padding: 8px 10px;
   font-size: 11px;
+  font-weight: 600;
   color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #ffffff15;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.library-table th:hover { color: var(--text); }
+.library-table th .sort-arrow { font-size: 10px; margin-left: 3px; opacity: 0.4; }
+.library-table th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+.library-table th.no-sort { cursor: default; }
+.library-table th.no-sort:hover { color: var(--text-dim); }
+.library-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #ffffff08;
+  vertical-align: middle;
   font-family: var(--mono);
-  flex-wrap: wrap;
+  color: var(--text-dim);
 }
-.library-card .lib-tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
+.library-table tr:hover td { background: #ffffff06; }
+.library-table .lib-text-cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: inherit;
 }
-.library-card .lib-tag {
+.library-table .lib-tags-cell {
+  font-family: inherit;
+}
+.library-table .lib-tag {
   font-size: 10px;
   padding: 2px 8px;
   border-radius: 10px;
   background: var(--surface2);
   color: var(--text-dim);
   font-weight: 500;
+  display: inline-block;
+  margin: 1px 2px;
 }
-.library-card .lib-label {
-  font-size: 12px;
-  color: var(--accent);
-  font-weight: 600;
-}
-.library-card .lib-actions {
-  display: flex;
-  gap: 6px;
-}
-.library-card .lib-actions button {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 11px;
+.library-table .lib-actions-cell { white-space: nowrap; }
+.library-table .lib-actions-cell button {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 10px;
   background: var(--surface2);
   border: none;
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  margin-right: 4px;
 }
-.library-card .lib-actions button:hover { background: #ffffff15; }
-.library-card .lib-actions button.danger { color: var(--red); }
-.library-card .lib-actions button.danger:hover { background: #f8717120; }
-.library-card audio { width: 100%; height: 32px; }
+.library-table .lib-actions-cell button:hover { background: #ffffff15; }
+.library-table .lib-actions-cell button.danger { color: var(--red); }
+.library-table .lib-actions-cell button.danger:hover { background: #f8717120; }
+.library-table audio { width: 180px; height: 28px; }
 .library-pagination {
   display: flex;
   justify-content: center;
@@ -835,14 +855,33 @@ audio { width: 100%; margin-bottom: 8px; }
   <!-- Library Page (Audio Cache) -->
   <div class="page" id="page-library">
     <div class="library-toolbar">
-      <input type="text" id="library-search" placeholder="Search cached audio..." style="flex:1; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px;">
-      <input type="text" id="library-tag-filter" placeholder="Filter by tag..." style="width:160px; background:var(--surface); border:1px solid #ffffff20; color:var(--text); padding:8px 12px; border-radius:var(--radius); font-size:13px;">
+      <input type="text" id="library-search" placeholder="Search text..." style="flex:1; min-width:140px;">
+      <input type="text" id="library-tag-filter" placeholder="Tag..." style="width:120px;">
+      <select id="library-voice-filter" style="width:140px;"><option value="">All voices</option></select>
+      <select id="library-lang-filter" style="width:150px;"><option value="">All languages</option></select>
       <button id="library-search-btn">Search</button>
       <button id="library-refresh-btn">Refresh</button>
     </div>
     <div class="library-stats" id="library-stats"></div>
-    <div class="library-grid" id="library-grid">
-      <div style="color:var(--text-dim); text-align:center; padding:48px;">Loading cache entries...</div>
+    <div class="library-table-wrap">
+      <table class="library-table" id="library-table">
+        <thead>
+          <tr>
+            <th class="no-sort">Text</th>
+            <th data-sort="voice">Voice <span class="sort-arrow"></span></th>
+            <th data-sort="audio_duration_sec">Duration <span class="sort-arrow"></span></th>
+            <th data-sort="file_size_bytes">Size <span class="sort-arrow"></span></th>
+            <th data-sort="hit_count">Hits <span class="sort-arrow"></span></th>
+            <th class="no-sort">Tags</th>
+            <th class="no-sort">Audio</th>
+            <th data-sort="created_at">Created <span class="sort-arrow"></span></th>
+            <th class="no-sort"></th>
+          </tr>
+        </thead>
+        <tbody id="library-body">
+          <tr><td colspan="9" style="color:var(--text-dim); text-align:center; padding:48px;">Loading cache entries...</td></tr>
+        </tbody>
+      </table>
     </div>
     <div class="library-pagination" id="library-pagination"></div>
 
@@ -1440,55 +1479,111 @@ document.querySelector('.nav-item[data-page="logs"]').addEventListener('click', 
 
 // ---- Library (Audio Cache) ----
 let libraryPage = 0;
-const libraryLimit = 20;
+const libraryLimit = 30;
 let editingCacheId = null;
+let librarySortBy = 'created_at';
+let librarySortOrder = -1; // -1 = desc, 1 = asc
+
+// Populate library filter dropdowns
+async function initLibraryFilters() {
+  try {
+    const [vRes, lRes] = await Promise.all([fetch('/voices'), fetch('/languages')]);
+    const vData = await vRes.json();
+    const lData = await lRes.json();
+    const voiceSel = document.getElementById('library-voice-filter');
+    vData.voices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = v.id;
+      voiceSel.appendChild(opt);
+    });
+    const langSel = document.getElementById('library-lang-filter');
+    lData.languages.forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.code;
+      opt.textContent = l.name;
+      langSel.appendChild(opt);
+    });
+  } catch {}
+}
+initLibraryFilters();
+
+function updateSortHeaders() {
+  document.querySelectorAll('.library-table th[data-sort]').forEach(th => {
+    const field = th.dataset.sort;
+    const arrow = th.querySelector('.sort-arrow');
+    if (field === librarySortBy) {
+      th.classList.add('sorted');
+      arrow.textContent = librarySortOrder === -1 ? '▼' : '▲';
+    } else {
+      th.classList.remove('sorted');
+      arrow.textContent = '';
+    }
+  });
+}
+
+// Column header click sorting
+document.querySelectorAll('.library-table th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const field = th.dataset.sort;
+    if (librarySortBy === field) {
+      librarySortOrder = librarySortOrder === -1 ? 1 : -1;
+    } else {
+      librarySortBy = field;
+      librarySortOrder = -1;
+    }
+    loadLibrary(0);
+  });
+});
 
 async function loadLibrary(page = 0) {
   libraryPage = page;
   const search = document.getElementById('library-search').value.trim();
   const tag = document.getElementById('library-tag-filter').value.trim();
+  const voice = document.getElementById('library-voice-filter').value;
+  const lang = document.getElementById('library-lang-filter').value;
   const skip = page * libraryLimit;
-  const params = new URLSearchParams({ skip, limit: libraryLimit });
+  const params = new URLSearchParams({ skip, limit: libraryLimit, sort_by: librarySortBy, sort_order: librarySortOrder });
   if (search) params.set('search', search);
   if (tag) params.set('tag', tag);
+  if (voice) params.set('voice', voice);
+  if (lang) params.set('lang_code', lang);
   try {
     const res = await fetch('/cache?' + params);
     if (!res.ok) throw new Error('Failed to load');
     const data = await res.json();
-    const grid = document.getElementById('library-grid');
+    const tbody = document.getElementById('library-body');
     const stats = document.getElementById('library-stats');
     stats.textContent = `${data.total} cached entries`;
+    updateSortHeaders();
     if (data.entries.length === 0) {
-      grid.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:48px; grid-column:1/-1;">No cached audio found. Generate speech to populate the cache.</div>';
+      tbody.innerHTML = '<tr><td colspan="9" style="color:var(--text-dim); text-align:center; padding:48px;">No cached audio found.</td></tr>';
       document.getElementById('library-pagination').innerHTML = '';
       return;
     }
-    grid.innerHTML = data.entries.map(e => {
-      const text = escapeHtml((e.text || '').substring(0, 150));
-      const dur = e.audio_duration_sec != null ? e.audio_duration_sec.toFixed(2) : '?';
-      const size = e.file_size_bytes ? (e.file_size_bytes / 1024).toFixed(0) + 'KB' : '?';
+    tbody.innerHTML = data.entries.map(e => {
+      const text = escapeHtml((e.text || '').substring(0, 120));
+      const dur = e.audio_duration_sec != null ? e.audio_duration_sec.toFixed(1) + 's' : '—';
+      const size = e.file_size_bytes ? (e.file_size_bytes / 1024).toFixed(0) + ' KB' : '—';
       const hits = e.hit_count || 0;
-      const tags = (e.tags || []).map(t => `<span class="lib-tag">${escapeHtml(t)}</span>`).join('');
-      const label = e.label ? `<span class="lib-label">${escapeHtml(e.label)}</span>` : '';
-      const created = e.created_at ? new Date(e.created_at).toLocaleString() : '';
-      return `<div class="library-card" data-id="${e._id}">
-        ${label}
-        <div class="lib-text">${text}</div>
-        <div class="lib-meta">
-          <span>${escapeHtml(e.voice || '?')}</span>
-          <span>${dur}s</span>
-          <span>${size}</span>
-          <span>${hits} hits</span>
-          <span>speed: ${e.speed || 1}x</span>
-        </div>
-        <div class="lib-tags">${tags}</div>
-        <audio controls preload="none" src="/cache/${e._id}"></audio>
-        <div class="lib-actions">
-          <button onclick="openTagEditor('${e._id}', ${JSON.stringify(JSON.stringify(e.tags || []))}, ${JSON.stringify(JSON.stringify(e.label || ''))})">Tags</button>
-          <button class="danger" onclick="deleteLibraryEntry('${e._id}')">Delete</button>
-        </div>
-        <div style="font-size:10px; color:var(--text-dim);">${created}</div>
-      </div>`;
+      const tags = (e.tags || []).map(t => `<span class="lib-tag">${escapeHtml(t)}</span>`).join(' ');
+      const created = e.created_at ? new Date(e.created_at).toLocaleDateString() : '';
+      const tagsJson = JSON.stringify(JSON.stringify(e.tags || []));
+      const labelJson = JSON.stringify(JSON.stringify(e.label || ''));
+      return `<tr>
+        <td class="lib-text-cell" title="${escapeHtml((e.text || '').substring(0, 300))}">${text}</td>
+        <td>${escapeHtml(e.voice || '—')}</td>
+        <td>${dur}</td>
+        <td>${size}</td>
+        <td>${hits}</td>
+        <td class="lib-tags-cell">${tags}</td>
+        <td><audio controls preload="none" src="/cache/${e._id}"></audio></td>
+        <td>${created}</td>
+        <td class="lib-actions-cell">
+          <button onclick="openTagEditor('${e._id}', ${tagsJson}, ${labelJson})">Tags</button>
+          <button class="danger" onclick="deleteLibraryEntry('${e._id}')">Del</button>
+        </td>
+      </tr>`;
     }).join('');
     // Pagination
     const totalPages = Math.ceil(data.total / libraryLimit);
@@ -1500,7 +1595,7 @@ async function loadLibrary(page = 0) {
     if (page < totalPages - 1) pagHtml += `<button onclick="loadLibrary(${page + 1})">Next</button>`;
     pag.innerHTML = pagHtml;
   } catch {
-    document.getElementById('library-grid').innerHTML = '<div style="color:var(--text-dim); text-align:center; padding:48px; grid-column:1/-1;">Failed to load cache. MongoDB may be unavailable.</div>';
+    document.getElementById('library-body').innerHTML = '<tr><td colspan="9" style="color:var(--text-dim); text-align:center; padding:48px;">Failed to load cache. MongoDB may be unavailable.</td></tr>';
   }
 }
 
@@ -1509,6 +1604,8 @@ document.getElementById('library-refresh-btn').addEventListener('click', () => l
 document.getElementById('library-search').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') loadLibrary(0);
 });
+document.getElementById('library-voice-filter').addEventListener('change', () => loadLibrary(0));
+document.getElementById('library-lang-filter').addEventListener('change', () => loadLibrary(0));
 
 function openTagEditor(cacheId, tags, label) {
   editingCacheId = cacheId;

@@ -531,10 +531,17 @@ class TagRequest(BaseModel):
 
 
 @app.get("/cache")
-async def list_cache(search: str = "", tag: str = "", skip: int = 0, limit: int = 50):
-    """List cached audio entries with optional search and tag filtering."""
+async def list_cache(
+    search: str = "", tag: str = "", voice: str = "", lang_code: str = "",
+    sort_by: str = "created_at", sort_order: int = -1,
+    skip: int = 0, limit: int = 50,
+):
+    """List cached audio entries with search, filtering, and sorting."""
     import cache as audio_cache
-    docs, total = await audio_cache.list_entries(search=search, tag=tag, skip=skip, limit=limit)
+    docs, total = await audio_cache.list_entries(
+        search=search, tag=tag, voice=voice, lang_code=lang_code,
+        sort_by=sort_by, sort_order=sort_order, skip=skip, limit=limit,
+    )
     return {"entries": docs, "total": total}
 
 

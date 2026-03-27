@@ -20,8 +20,6 @@ RUN pip install --no-cache-dir \
 # Download unidic dictionary for Japanese
 RUN python -m unidic download
 
-# Download NLTK data for Korean
-RUN python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng', quiet=True)"
 
 COPY kokoro_sdk.py server.py db.py cache.py ./
 COPY static/ ./static/
