@@ -1,86 +1,77 @@
-# Kokoro TTS - Getting Started
+# Kokoro TTS Service
 
-A simple setup for running [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), an open-weight text-to-speech model with 82 million parameters.
+A FastAPI server for [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), an open-weight text-to-speech model with 82 million parameters. Provides OpenAI-compatible streaming, audio caching, batch processing, and a web UI.
 
-## System Requirements
-
-- **Python 3.10-3.12** (kokoro does not yet support Python 3.13+)
-- ~500MB disk space for model weights
-- Works on CPU (GPU optional but faster)
-
-Tested on:
-- Fedora Linux 43
-- AMD Ryzen AI MAX+ 395 (32 cores)
-- 125GB RAM
-
-## Quick Start
-
-### 1. Install system dependency
-
-Kokoro requires `espeak-ng` for phoneme conversion:
+## Quick Start (Docker)
 
 ```bash
-# Fedora/RHEL
-sudo dnf install espeak-ng
-
-# Ubuntu/Debian
-sudo apt install espeak-ng
-
-# Arch
-sudo pacman -S espeak-ng
+docker compose up --build
 ```
 
-### 2. Create virtual environment
+This starts the TTS server on **port 8880** with a MongoDB instance for persistence.
 
-Using `uv` (recommended if you have Python 3.13+):
+The first startup downloads model weights (~312MB) from HuggingFace, which may take a few minutes.
+
+## API Endpoints
+
+### Streaming (OpenAI-compatible)
 
 ```bash
-cd /home/andrew/Code/projects/kokoro
-uv venv --python 3.12 venv
-source venv/bin/activate
+curl -X POST http://localhost:8880/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Hello world", "voice": "af_heart"}' \
+  --output speech.wav
 ```
 
-Or with standard Python 3.10-3.12:
+### Full synthesis with metadata
 
 ```bash
-cd /home/andrew/Code/projects/kokoro
-python3.12 -m venv venv
-source venv/bin/activate
+curl -X POST http://localhost:8880/synthesize \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Hello world", "voice": "af_heart"}' \
+  --output speech.wav
 ```
 
-### 3. Install Python dependencies
+Response headers include `X-Audio-Duration`, `X-Sample-Rate`, and `X-Voice`.
+
+### Batch processing
 
 ```bash
-# Using uv (faster)
-uv pip install kokoro soundfile torch
-
-# Or using pip
-pip install -r requirements.txt
+curl -X POST http://localhost:8880/v1/audio/batch \
+  -H "Content-Type: application/json" \
+  -d '{"items": [
+    {"input": "First sentence", "voice": "af_heart"},
+    {"input": "Second sentence", "voice": "am_adam"}
+  ]}'
 ```
 
-**Note:** The first run will download model weights (~312MB) and voice files from HuggingFace. This may take several minutes depending on your internet connection.
+Returns a `job_id` to poll with `GET /v1/audio/batch/{job_id}`.
 
-### 4. Generate speech
+### Other endpoints
 
-```bash
-# Basic usage
-python tts.py "Hello, this is Kokoro text to speech!"
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Web UI |
+| `GET /health` | Health check |
+| `GET /stats` | System and TTS metrics |
+| `GET /voices` | Available voices |
+| `GET /languages` | Supported languages |
+| `GET /cache` | Browse cached audio |
+| `GET /logs` | Request logs |
+| `GET /generations` | Generation history |
 
-# Use a different voice
-python tts.py "Hello world" --voice am_adam
+## Request Parameters
 
-# Read from file
-python tts.py --file input.txt --output my_audio
-
-# List available voices
-python tts.py --list-voices
-```
-
-Output files are saved to `output/` directory by default.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `input` | string | (required) | Text to synthesize (1-10,000 chars) |
+| `voice` | string | `af_heart` | Voice ID |
+| `speed` | float | `1.0` | Playback speed |
+| `lang_code` | string | `a` | Language code |
 
 ## Available Voices
 
-The model includes 54 voices across 8 languages. Here are some examples:
+54 voices across 9 languages. Examples:
 
 | Voice ID | Description |
 |----------|-------------|
@@ -92,7 +83,7 @@ The model includes 54 voices across 8 languages. Here are some examples:
 | bf_emma | British Female - Emma |
 | bm_george | British Male - George |
 
-Run `python tts.py --list-voices` for more options.
+Full list at `GET /voices` or [VOICES.md](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md).
 
 ## Language Codes
 
@@ -107,45 +98,40 @@ Run `python tts.py --list-voices` for more options.
 | h | Hindi |
 | i | Italian |
 | p | Brazilian Portuguese |
-| k | Korean |
 
-## Usage Examples
+## Shell Client
+
+`speak.sh` sends text to the server and plays audio through your speakers:
 
 ```bash
-# American English (default)
-python tts.py "Hello world"
-
-# British English
-python tts.py "Hello world" --lang b --voice bf_emma
-
-# French
-python tts.py "Bonjour le monde" --lang f
-
-# Japanese
-python tts.py "こんにちは世界" --lang j
+./speak.sh "Hello world"
+./speak.sh "Hello world" am_adam
+echo "Hello world" | ./speak.sh -
 ```
 
-## Python API
+## Configuration
 
-```python
-from kokoro import KPipeline
-import soundfile as sf
+### Environment Variables
 
-# Initialize pipeline
-pipeline = KPipeline(lang_code='a')
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONGO_URL` | `mongodb://localhost:27017` | MongoDB connection string |
+| `MONGO_DB` | `kokoro` | Database name |
+| `AUDIO_CACHE_DIR` | `/app/audio_cache` | Cache directory path |
+| `HF_HUB_DOWNLOAD_TIMEOUT` | `120` | HuggingFace download timeout (seconds) |
 
-# Generate speech
-text = "Hello, this is a test of Kokoro text to speech."
-generator = pipeline(text, voice='af_heart')
+### Cache Settings
 
-for i, (graphemes, phonemes, audio) in enumerate(generator):
-    sf.write(f'output_{i}.wav', audio, 24000)
-```
+Configurable via `PUT /settings/cache` or the web UI:
+
+- Min/max text length for caching
+- Max audio duration, file size, total cache size
+- Max entries and TTL (days)
 
 ## Resources
 
 - [Model Card](https://huggingface.co/hexgrad/Kokoro-82M)
-- [GitHub](https://github.com/hexgrad/kokoro)
+- [GitHub (upstream)](https://github.com/hexgrad/kokoro)
 - [Voice List](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md)
 - [Demo](https://hf.co/spaces/hexgrad/Kokoro-TTS)
 
