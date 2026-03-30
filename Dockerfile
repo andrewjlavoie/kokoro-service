@@ -21,9 +21,9 @@ RUN pip install --no-cache-dir \
 RUN python -m unidic download
 
 
-COPY kokoro_sdk.py server.py db.py cache.py ./
+COPY src/ ./src/
 COPY static/ ./static/
 
 EXPOSE 8880
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8880", "--log-level", "warning"]
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8880", "--log-level", "warning"]

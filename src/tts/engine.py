@@ -1,4 +1,4 @@
-"""Minimal Kokoro TTS SDK for AI agent integration."""
+"""Kokoro TTS engine — wraps KPipeline with a simple two-method API."""
 
 import shutil
 import subprocess
@@ -10,33 +10,7 @@ import numpy as np
 import soundfile as sf
 from kokoro import KPipeline
 
-SAMPLE_RATE = 24000
-
-LANGUAGE_CODES = {
-    "a": "American English",
-    "b": "British English",
-    "j": "Japanese",
-    "z": "Mandarin Chinese",
-    "e": "Spanish",
-    "f": "French",
-    "h": "Hindi",
-    "i": "Italian",
-    "p": "Brazilian Portuguese",
-}
-
-VOICES = {
-    "af_heart": "American Female - Heart",
-    "af_bella": "American Female - Bella",
-    "af_nicole": "American Female - Nicole",
-    "af_sarah": "American Female - Sarah",
-    "af_sky": "American Female - Sky",
-    "am_adam": "American Male - Adam",
-    "am_michael": "American Male - Michael",
-    "bf_emma": "British Female - Emma",
-    "bf_isabella": "British Female - Isabella",
-    "bm_george": "British Male - George",
-    "bm_lewis": "British Male - Lewis",
-}
+from src.tts.constants import LANGUAGE_CODES, SAMPLE_RATE, VOICES
 
 
 class KokoroTTS:
@@ -58,7 +32,13 @@ class KokoroTTS:
         """Return available language codes and their descriptions."""
         return dict(LANGUAGE_CODES)
 
-    def _ensure_pipeline(self, lang_code: str | None = None):
+    @property
+    def is_loaded(self) -> bool:
+        """Whether the TTS pipeline is loaded and ready."""
+        return self._pipeline is not None
+
+    def ensure_pipeline(self, lang_code: str | None = None):
+        """Load or switch the language pipeline. Raises RuntimeError on failure."""
         lang = lang_code or self.lang_code
         if self._pipeline is None or lang != self.lang_code:
             self.lang_code = lang
@@ -74,7 +54,7 @@ class KokoroTTS:
         self, text: str, voice: str | None = None, speed: float | None = None, lang_code: str | None = None,
     ) -> Generator[np.ndarray, None, None]:
         """Yield audio segments as they are generated (numpy float32 arrays)."""
-        self._ensure_pipeline(lang_code)
+        self.ensure_pipeline(lang_code)
         voice = voice or self.voice
         speed = speed or self.speed
         for _, _, audio in self._pipeline(text, voice=voice, speed=speed):
