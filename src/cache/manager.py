@@ -2,7 +2,7 @@
 
 import hashlib
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from bson import ObjectId
@@ -14,13 +14,13 @@ CACHE_DIR = Path(os.environ.get("AUDIO_CACHE_DIR", "/app/audio_cache"))
 # Default cache settings — overridden by MongoDB settings collection
 DEFAULT_SETTINGS = {
     "enabled": True,
-    "min_text_length": 10,       # don't cache very short texts like "ok", "yes"
-    "max_text_length": 5000,     # skip caching extremely long texts
-    "max_audio_duration": 120,   # seconds — skip caching very long generations
-    "max_file_size_mb": 50,      # per-entry WAV size limit in MB
-    "max_total_size_mb": 1024,   # overall cache disk usage cap (1 GB)
-    "max_entries": 5000,         # cap on total cached items
-    "ttl_days": 30,              # auto-expire entries not accessed in N days (0 = never)
+    "min_text_length": 10,  # don't cache very short texts like "ok", "yes"
+    "max_text_length": 5000,  # skip caching extremely long texts
+    "max_audio_duration": 120,  # seconds — skip caching very long generations
+    "max_file_size_mb": 50,  # per-entry WAV size limit in MB
+    "max_total_size_mb": 1024,  # overall cache disk usage cap (1 GB)
+    "max_entries": 5000,  # cap on total cached items
+    "ttl_days": 30,  # auto-expire entries not accessed in N days (0 = never)
 }
 
 # In-memory settings cache (refreshed from MongoDB)
@@ -34,7 +34,8 @@ async def get_settings() -> dict:
 
 async def load_settings():
     """Load cache settings from MongoDB into memory."""
-    from src.db import settings, get_db
+    from src.db import get_db, settings
+
     if get_db() is None:
         return
     doc = await settings().find_one({"_id": "cache"})
@@ -46,7 +47,8 @@ async def load_settings():
 
 async def save_settings(updates: dict) -> dict:
     """Save cache settings to MongoDB and update memory."""
-    from src.db import settings, get_db
+    from src.db import get_db, settings
+
     if get_db() is None:
         return dict(_settings)
     # Only accept known keys
@@ -72,7 +74,9 @@ async def should_cache(text: str, wav_bytes: bytes | None = None, duration: floa
         return False
     if wav_bytes is not None and len(wav_bytes) > _settings["max_file_size_mb"] * 1024 * 1024:
         return False
-    from src.db import cache as cache_coll, get_db
+    from src.db import cache as cache_coll
+    from src.db import get_db
+
     if get_db() is None:
         return True
     # Check total entry count
@@ -92,11 +96,14 @@ async def should_cache(text: str, wav_bytes: bytes | None = None, duration: floa
 
 async def enforce_ttl():
     """Remove cache entries that haven't been accessed within TTL days."""
-    from src.db import cache as cache_coll, get_db
+    from src.db import cache as cache_coll
+    from src.db import get_db
+
     if get_db() is None or _settings["ttl_days"] <= 0:
         return 0
     from datetime import timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(days=_settings["ttl_days"])
+
+    cutoff = datetime.now(UTC) - timedelta(days=_settings["ttl_days"])
     expired = cache_coll().find({"last_accessed_at": {"$lt": cutoff}})
     removed = 0
     async for doc in expired:
@@ -117,6 +124,7 @@ def compute_cache_key(text: str, voice: str, speed: float, lang_code: str = "a")
 async def lookup(text: str, voice: str, speed: float, lang_code: str = "a"):
     """Check cache for matching audio. Returns (cache_doc, file_path) or (None, None)."""
     from src.db import cache, get_db
+
     if get_db() is None:
         return None, None
     key = compute_cache_key(text, voice, speed, lang_code)
@@ -127,7 +135,7 @@ async def lookup(text: str, voice: str, speed: float, lang_code: str = "a"):
             # Increment hit count
             await cache().update_one(
                 {"_id": doc["_id"]},
-                {"$inc": {"hit_count": 1}, "$set": {"last_accessed_at": datetime.now(timezone.utc)}},
+                {"$inc": {"hit_count": 1}, "$set": {"last_accessed_at": datetime.now(UTC)}},
             )
             return doc, full_path
         # File missing on disk — remove stale entry
@@ -135,9 +143,12 @@ async def lookup(text: str, voice: str, speed: float, lang_code: str = "a"):
     return None, None
 
 
-async def store(text: str, voice: str, speed: float, wav_bytes: bytes, duration: float, sample_rate: int, lang_code: str = "a"):
+async def store(
+    text: str, voice: str, speed: float, wav_bytes: bytes, duration: float, sample_rate: int, lang_code: str = "a"
+):
     """Store audio in cache. Returns the cache document or None if skipped/failed."""
     from src.db import cache, get_db
+
     if get_db() is None:
         return None
     if not await should_cache(text, wav_bytes=wav_bytes, duration=duration):
@@ -148,7 +159,7 @@ async def store(text: str, voice: str, speed: float, wav_bytes: bytes, duration:
     full_path = CACHE_DIR / rel_path
     full_path.parent.mkdir(parents=True, exist_ok=True)
     full_path.write_bytes(wav_bytes)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     doc = {
         "cache_key": key,
         "text": text,
@@ -179,12 +190,18 @@ SORT_FIELDS = {"created_at", "hit_count", "file_size_bytes", "audio_duration_sec
 
 
 async def list_entries(
-    search: str = "", tag: str = "", voice: str = "", lang_code: str = "",
-    sort_by: str = "created_at", sort_order: int = -1,
-    skip: int = 0, limit: int = 50,
+    search: str = "",
+    tag: str = "",
+    voice: str = "",
+    lang_code: str = "",
+    sort_by: str = "created_at",
+    sort_order: int = -1,
+    skip: int = 0,
+    limit: int = 50,
 ):
     """List cache entries with optional text search, tag/voice/lang filter, and sorting."""
     from src.db import cache, get_db
+
     if get_db() is None:
         return [], 0
     query = {}
@@ -211,6 +228,7 @@ async def list_entries(
 async def get_entry(cache_id: str):
     """Get a single cache entry by ID."""
     from src.db import cache, get_db
+
     if get_db() is None:
         return None
     try:
@@ -226,6 +244,7 @@ async def get_entry(cache_id: str):
 async def update_tags(cache_id: str, tags: list[str] | None = None, label: str | None = None):
     """Update tags and/or label on a cache entry."""
     from src.db import cache, get_db
+
     if get_db() is None:
         return None
     update = {}
@@ -245,6 +264,7 @@ async def update_tags(cache_id: str, tags: list[str] | None = None, label: str |
 async def delete_entry(cache_id: str) -> bool:
     """Remove a cache entry and its audio file. Returns True if deleted."""
     from src.db import cache, get_db
+
     if get_db() is None:
         return False
     try:

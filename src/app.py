@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from src.cache import manager as audio_cache
 from src.core import state
 from src.core.logging import logger
-from src.db import init_db, close_db, persist_log
+from src.db import close_db, init_db, persist_log
 from src.tts.engine import KokoroTTS
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -49,28 +49,43 @@ app = FastAPI(title="Kokoro TTS", version="0.2.0", lifespan=lifespan)
 # Request logging middleware
 # ---------------------------------------------------------------------------
 
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     # Skip logging for static files, websocket, health checks, and voice list
-    skip = request.url.path.startswith("/static") or request.url.path.startswith("/settings") or request.url.path in ("/ws/logs", "/health", "/stats", "/voices", "/languages", "/", "/generations", "/logs", "/logs/events")
+    skip = (
+        request.url.path.startswith("/static")
+        or request.url.path.startswith("/settings")
+        or request.url.path
+        in ("/ws/logs", "/health", "/stats", "/voices", "/languages", "/", "/generations", "/logs", "/logs/events")
+    )
     request_id = str(uuid.uuid4())[:8]
     request.state.request_id = request_id
     t0 = time.monotonic()
     response = await call_next(request)
     if not skip:
         elapsed_ms = (time.monotonic() - t0) * 1000
-        logger.info(json.dumps({
-            "request_id": request_id,
-            "method": request.method,
-            "path": request.url.path,
-            "status": response.status_code,
-            "duration_ms": round(elapsed_ms, 1),
-        }))
-        asyncio.create_task(persist_log(
-            request_id, "http_request",
-            method=request.method, path=request.url.path,
-            status=response.status_code, duration_ms=round(elapsed_ms, 1),
-        ))
+        logger.info(
+            json.dumps(
+                {
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": response.status_code,
+                    "duration_ms": round(elapsed_ms, 1),
+                }
+            )
+        )
+        asyncio.create_task(
+            persist_log(
+                request_id,
+                "http_request",
+                method=request.method,
+                path=request.url.path,
+                status=response.status_code,
+                duration_ms=round(elapsed_ms, 1),
+            )
+        )
     response.headers["X-Request-ID"] = request_id
     return response
 
@@ -79,7 +94,8 @@ async def log_requests(request: Request, call_next):
 # Include routers
 # ---------------------------------------------------------------------------
 
-from src.api import speech, cache as cache_routes, batch, admin
+from src.api import admin, batch, speech  # noqa: E402
+from src.api import cache as cache_routes  # noqa: E402
 
 app.include_router(speech.router)
 app.include_router(cache_routes.router)

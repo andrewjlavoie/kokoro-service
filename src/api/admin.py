@@ -3,16 +3,16 @@
 import os
 import sys
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from pathlib import Path
 
 from src.cache import manager as audio_cache
 from src.core import state
 from src.core.logging import ws_clients
-from src.db import get_db, settings, logs, generations, serialize_dates
-from src.tts import KokoroTTS, LANGUAGE_CODES
+from src.db import generations, get_db, logs, serialize_dates, settings
+from src.tts import LANGUAGE_CODES, KokoroTTS
 
 router = APIRouter()
 
@@ -41,6 +41,7 @@ async def websocket_logs(ws: WebSocket):
 async def stats():
     """System, process, and TTS metrics for the dashboard."""
     import torch
+
     mem = state.read_proc_meminfo()
     proc = state.read_process_mem()
     cpu = state.read_cpu_percent()
@@ -93,22 +94,12 @@ async def health():
 
 @router.get("/voices")
 async def voices():
-    return {
-        "voices": [
-            {"id": vid, "name": name}
-            for vid, name in KokoroTTS.list_voices().items()
-        ]
-    }
+    return {"voices": [{"id": vid, "name": name} for vid, name in KokoroTTS.list_voices().items()]}
 
 
 @router.get("/languages")
 async def languages():
-    return {
-        "languages": [
-            {"code": code, "name": name}
-            for code, name in LANGUAGE_CODES.items()
-        ]
-    }
+    return {"languages": [{"code": code, "name": name} for code, name in LANGUAGE_CODES.items()]}
 
 
 @router.get("/settings/cache")

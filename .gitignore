@@ -2,6 +2,10 @@ venv/
 __pycache__/
 output/
 *.wav
+htmlcov/
+.coverage
+.ruff_cache/
+.pytest_cache/
 .claude/
 .mcp.json
 .idea/

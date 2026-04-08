@@ -4,7 +4,7 @@ import asyncio
 import io
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import soundfile as sf
 from fastapi import APIRouter, HTTPException
@@ -13,7 +13,7 @@ from src.api.models import BatchRequest
 from src.cache import manager as audio_cache
 from src.core import state
 from src.core.logging import log_json
-from src.db import get_db, batch_jobs, persist_log, persist_generation, serialize_dates
+from src.db import batch_jobs, get_db, serialize_dates
 
 router = APIRouter()
 
@@ -25,7 +25,7 @@ async def _process_batch(job_id: str):
 
     await batch_jobs().update_one(
         {"job_id": job_id},
-        {"$set": {"status": "processing", "started_at": datetime.now(timezone.utc)}},
+        {"$set": {"status": "processing", "started_at": datetime.now(UTC)}},
     )
 
     job = await batch_jobs().find_one({"job_id": job_id})
@@ -40,26 +40,33 @@ async def _process_batch(job_id: str):
             if cache_doc and cache_path:
                 await batch_jobs().update_one(
                     {"job_id": job_id},
-                    {"$set": {
-                        f"items.{i}.status": "completed",
-                        f"items.{i}.cache_id": str(cache_doc["_id"]),
-                        f"items.{i}.audio_duration_sec": cache_doc["audio_duration_sec"],
-                        f"items.{i}.synth_time_ms": 0,
-                        f"items.{i}.cache_hit": True,
-                    }, "$inc": {"completed_items": 1}},
+                    {
+                        "$set": {
+                            f"items.{i}.status": "completed",
+                            f"items.{i}.cache_id": str(cache_doc["_id"]),
+                            f"items.{i}.audio_duration_sec": cache_doc["audio_duration_sec"],
+                            f"items.{i}.synth_time_ms": 0,
+                            f"items.{i}.cache_hit": True,
+                        },
+                        "$inc": {"completed_items": 1},
+                    },
                 )
                 continue
 
             # Synthesize (run in thread to avoid blocking event loop)
             t0 = time.monotonic()
-            audio, sr = await asyncio.to_thread(state.tts.synthesize, item["text"], voice=item["voice"], speed=item["speed"], lang_code=lang_code)
+            audio, sr = await asyncio.to_thread(
+                state.tts.synthesize, item["text"], voice=item["voice"], speed=item["speed"], lang_code=lang_code
+            )
             elapsed_ms = (time.monotonic() - t0) * 1000
 
             if len(audio) == 0:
                 await batch_jobs().update_one(
                     {"job_id": job_id},
-                    {"$set": {f"items.{i}.status": "failed", f"items.{i}.error": "No audio generated"},
-                     "$inc": {"failed_items": 1}},
+                    {
+                        "$set": {f"items.{i}.status": "failed", f"items.{i}.error": "No audio generated"},
+                        "$inc": {"failed_items": 1},
+                    },
                 )
                 continue
 
@@ -69,18 +76,23 @@ async def _process_batch(job_id: str):
             wav_bytes = buf.getvalue()
 
             # Store in cache
-            stored = await audio_cache.store(item["text"], item["voice"], item["speed"], wav_bytes, duration, sr, lang_code)
+            stored = await audio_cache.store(
+                item["text"], item["voice"], item["speed"], wav_bytes, duration, sr, lang_code
+            )
             cache_id = str(stored["_id"]) if stored else None
 
             await batch_jobs().update_one(
                 {"job_id": job_id},
-                {"$set": {
-                    f"items.{i}.status": "completed",
-                    f"items.{i}.cache_id": cache_id,
-                    f"items.{i}.audio_duration_sec": duration,
-                    f"items.{i}.synth_time_ms": round(elapsed_ms, 1),
-                    f"items.{i}.cache_hit": False,
-                }, "$inc": {"completed_items": 1}},
+                {
+                    "$set": {
+                        f"items.{i}.status": "completed",
+                        f"items.{i}.cache_id": cache_id,
+                        f"items.{i}.audio_duration_sec": duration,
+                        f"items.{i}.synth_time_ms": round(elapsed_ms, 1),
+                        f"items.{i}.cache_hit": False,
+                    },
+                    "$inc": {"completed_items": 1},
+                },
             )
 
             # Track global stats
@@ -89,8 +101,7 @@ async def _process_batch(job_id: str):
         except Exception as e:
             await batch_jobs().update_one(
                 {"job_id": job_id},
-                {"$set": {f"items.{i}.status": "failed", f"items.{i}.error": str(e)},
-                 "$inc": {"failed_items": 1}},
+                {"$set": {f"items.{i}.status": "failed", f"items.{i}.error": str(e)}, "$inc": {"failed_items": 1}},
             )
 
     # Mark job complete
@@ -98,10 +109,16 @@ async def _process_batch(job_id: str):
     final_status = "completed" if final_job["failed_items"] == 0 else "partial"
     await batch_jobs().update_one(
         {"job_id": job_id},
-        {"$set": {"status": final_status, "completed_at": datetime.now(timezone.utc)}},
+        {"$set": {"status": final_status, "completed_at": datetime.now(UTC)}},
     )
-    log_json("batch", "batch_complete", job_id=job_id, status=final_status,
-             completed=final_job["completed_items"], failed=final_job["failed_items"])
+    log_json(
+        "batch",
+        "batch_complete",
+        job_id=job_id,
+        status=final_status,
+        completed=final_job["completed_items"],
+        failed=final_job["failed_items"],
+    )
 
 
 @router.post("/v1/audio/batch")
@@ -129,17 +146,19 @@ async def submit_batch(req: BatchRequest):
         }
         for i, item in enumerate(req.items)
     ]
-    await batch_jobs().insert_one({
-        "job_id": job_id,
-        "status": "pending",
-        "items": items,
-        "total_items": len(items),
-        "completed_items": 0,
-        "failed_items": 0,
-        "created_at": datetime.now(timezone.utc),
-        "started_at": None,
-        "completed_at": None,
-    })
+    await batch_jobs().insert_one(
+        {
+            "job_id": job_id,
+            "status": "pending",
+            "items": items,
+            "total_items": len(items),
+            "completed_items": 0,
+            "failed_items": 0,
+            "created_at": datetime.now(UTC),
+            "started_at": None,
+            "completed_at": None,
+        }
+    )
     asyncio.create_task(_process_batch(job_id))
     log_json("batch", "batch_submitted", job_id=job_id, total_items=len(items))
     return {"job_id": job_id, "status": "pending", "total_items": len(items)}

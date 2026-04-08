@@ -1,8 +1,8 @@
 """MongoDB persistence operations — fire-and-forget safe."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from src.db.connection import get_db, generations, logs
+from src.db.connection import generations, get_db, logs
 
 
 def serialize_dates(doc: dict, fields: tuple[str, ...]) -> None:
@@ -22,7 +22,7 @@ async def persist_log(request_id: str | None, event: str, **kwargs):
             "event": event,
             "level": "INFO",
             "data": kwargs,
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         }
         await logs().insert_one(doc)
     except Exception:
@@ -61,7 +61,7 @@ async def persist_generation(
             "endpoint": endpoint,
             "cache_hit": cache_hit,
             "cache_id": cache_id,
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         }
         await generations().insert_one(doc)
     except Exception:

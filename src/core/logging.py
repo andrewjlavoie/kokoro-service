@@ -13,9 +13,9 @@ logger.setLevel(logging.INFO)
 
 # Stdout handler
 _stdout_handler = logging.StreamHandler(sys.stdout)
-_stdout_handler.setFormatter(logging.Formatter(
-    '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":%(message)s}'
-))
+_stdout_handler.setFormatter(
+    logging.Formatter('{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":%(message)s}')
+)
 logger.addHandler(_stdout_handler)
 
 # Suppress noisy torch/hf warnings from cluttering logs
@@ -36,11 +36,15 @@ class WebSocketLogHandler(logging.Handler):
                 msg = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
                 msg = raw.strip('"')
-            entry = json.dumps({
-                "time": self.format(record).split(",")[0] if hasattr(record, "asctime") else time.strftime("%H:%M:%S"),
-                "level": record.levelname,
-                "message": msg,
-            })
+            entry = json.dumps(
+                {
+                    "time": self.format(record).split(",")[0]
+                    if hasattr(record, "asctime")
+                    else time.strftime("%H:%M:%S"),
+                    "level": record.levelname,
+                    "message": msg,
+                }
+            )
             for ws in list(ws_clients):
                 asyncio.create_task(_ws_send(ws, entry))
         except Exception:

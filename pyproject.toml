@@ -1,0 +1,137 @@
+# Kokoro TTS — tool configuration
+
+[project]
+name = "kokoro-tts-service"
+version = "0.2.0"
+requires-python = ">=3.10"
+
+# ==========================================================================
+# RUFF — linting, formatting, import sorting
+# ==========================================================================
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src"]
+exclude = [
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "static",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort (import sorting)
+    "N",      # pep8-naming
+    "UP",     # pyupgrade (modernize syntax)
+    "B",      # flake8-bugbear (likely bugs)
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "PTH",    # flake8-use-pathlib
+]
+
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "W291",   # trailing whitespace
+    "W293",   # blank line contains whitespace
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]          # allow unused imports in __init__.py
+"tests/*" = ["S101"]              # allow assert in tests
+"src/core/state.py" = ["PTH123"]  # /proc paths are clearer with open()
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ==========================================================================
+# PYRIGHT — type checking
+# ==========================================================================
+[tool.pyright]
+pythonVersion = "3.12"
+venvPath = "."
+venv = "venv"
+include = ["src"]
+typeCheckingMode = "basic"
+reportMissingImports = false
+reportMissingTypeStubs = false
+reportOptionalMemberAccess = false
+reportOptionalSubscript = false
+reportOptionalCall = false
+reportAttributeAccessIssue = false
+exclude = [
+    "**/__pycache__",
+    ".venv",
+    "venv",
+    "tests",
+    "static",
+]
+
+# ==========================================================================
+# PYTEST — testing
+# ==========================================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+
+# ==========================================================================
+# COVERAGE
+# ==========================================================================
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+# ==========================================================================
+# BANDIT — security scanning
+# ==========================================================================
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "venv"]
+skips = ["B101"]   # skip assert warnings
+
+# ==========================================================================
+# INTERROGATE — docstring coverage
+# ==========================================================================
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = false
+ignore-magic = true
+ignore-semiprivate = false
+ignore-private = false
+ignore-property-decorators = false
+ignore-module = false
+ignore-nested-functions = false
+ignore-nested-classes = true
+ignore-setters = false
+fail-under = 60
+exclude = ["tests", "venv", "static"]
+verbose = 1

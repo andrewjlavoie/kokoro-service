@@ -51,7 +51,11 @@ class KokoroTTS:
                 raise RuntimeError(f"Language code '{lang}' is not supported by the model") from None
 
     def synthesize_stream(
-        self, text: str, voice: str | None = None, speed: float | None = None, lang_code: str | None = None,
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float | None = None,
+        lang_code: str | None = None,
     ) -> Generator[np.ndarray, None, None]:
         """Yield audio segments as they are generated (numpy float32 arrays)."""
         self.ensure_pipeline(lang_code)
@@ -60,14 +64,18 @@ class KokoroTTS:
         for _, _, audio in self._pipeline(text, voice=voice, speed=speed):
             yield audio.numpy() if hasattr(audio, "numpy") else np.asarray(audio)
 
-    def synthesize(self, text: str, voice: str | None = None, speed: float | None = None, lang_code: str | None = None) -> tuple[np.ndarray, int]:
+    def synthesize(
+        self, text: str, voice: str | None = None, speed: float | None = None, lang_code: str | None = None
+    ) -> tuple[np.ndarray, int]:
         """Convert text to audio. Returns (numpy_array, sample_rate)."""
         chunks = list(self.synthesize_stream(text, voice=voice, speed=speed, lang_code=lang_code))
         if not chunks:
             return np.array([], dtype=np.float32), SAMPLE_RATE
         return np.concatenate(chunks), SAMPLE_RATE
 
-    def say(self, text: str, voice: str | None = None, speed: float | None = None, lang_code: str | None = None) -> None:
+    def say(
+        self, text: str, voice: str | None = None, speed: float | None = None, lang_code: str | None = None
+    ) -> None:
         """Synthesize text and play it through speakers."""
         audio, sr = self.synthesize(text, voice=voice, speed=speed, lang_code=lang_code)
         if len(audio) == 0:
